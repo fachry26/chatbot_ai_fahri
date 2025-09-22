@@ -43,15 +43,15 @@ if "history" not in st.session_state:
 # --- SIDEBAR ---
 with st.sidebar:
     display_header_logo()
-    st.subheader("📖 History")
-    display_history(st.session_state.history)
-
     if st.button("➕ New Chat", use_container_width=True):
         st.session_state.messages = []
         st.session_state.matched_data = pd.DataFrame()
         st.session_state.search_performed = False
         st.session_state.last_search = {"strict_groups": [], "fallback_keywords": []}
         st.rerun()
+
+    st.subheader("📖 History")
+    display_history(st.session_state.history)
 
 # --- MAIN LAYOUT (3 COLUMNS) ---
 col1, col2, col3 = st.columns([2, 2.5, 2])
@@ -69,7 +69,7 @@ with col1:
             chat_container.markdown(
                 f"""
                 <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
-                    <div style="background-color: #DCF8C6; color: #000000; border-radius: 15px; padding: 10px 15px; max-width: 85%; word-wrap: break-word;">
+                    <div style="background-color: #eeecfd; color: #000000; border-radius: 15px; padding: 10px 15px; max-width: 85%; word-wrap: break-word;">
                         {content_for_html}
                     </div>
                 </div>
@@ -143,7 +143,7 @@ if prompt := st.chat_input("Ask about the data..."):
     chat_container.markdown(
         f"""
         <div style="display: flex; justify-content: flex-end; margin-bottom: 10px;">
-            <div style="background-color: #DCF8C6; color: #000000; border-radius: 15px; padding: 10px 15px; max-width: 85%; word-wrap: break-word;">
+            <div style="background-color: #eeecfd; color: #000000; border-radius: 15px; padding: 10px 15px; max-width: 85%; word-wrap: break-word;">
                 {prompt_for_html}
             </div>
         </div>
@@ -223,7 +223,7 @@ if prompt := st.chat_input("Ask about the data..."):
 
     # --- UPDATE HISTORY & RERUN ---
     if prompt_type == "New Topic" and not st.session_state.matched_data.empty:
-        history_summary = f"投 {prompt[:30]}..."
+        history_summary = f"{prompt[:30]}..."
         st.session_state.history.append({
             "summary": history_summary, "messages": st.session_state.messages.copy(),
             "data": st.session_state.matched_data.copy(), "search_query": st.session_state.last_search.copy()

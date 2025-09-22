@@ -1,1 +1,4 @@
+venv
+__pyacache__
+.streamlit
 data_full.xlsx
