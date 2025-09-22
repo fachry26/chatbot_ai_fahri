@@ -199,15 +199,17 @@ def display_raw_data_bubbles(df):
         st.markdown(html_card, unsafe_allow_html=True)
 
 def display_header_logo():
-    col1, col2, col3 = st.columns(3)
+    st.image("logo_ai.png", use_container_width=True)
+    st.markdown("</div>", unsafe_allow_html=True)
+    col1, col2 = st.columns([1, 1], gap="large")
     with col1:
-        st.image("logo_setneg.png", width=30)
+        st.image("logo_setneg.png", width=60)
     with col2:
-        st.image("logo_ai.png", width=30)
-    with col3:
-        st.image("logo_kurasi.png", width=30)
-
-    st.markdown("<div class='sidebar-title'>Social Media AI</div>", unsafe_allow_html=True)
+        st.image("logo_kurasi.png", width=60)
+    st.markdown(
+        "<div class='sidebar-title'>Social Media AI</div>", 
+        unsafe_allow_html=True
+    )
 
 def display_history(history_list):
     if not history_list:
