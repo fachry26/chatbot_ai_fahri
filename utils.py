@@ -56,6 +56,8 @@ def classify_prompt_and_extract_entities(current_prompt, previous_prompt=""):
     
     8.  **For "Follow-Up" prompts** (that are NOT simple date changes), `strict_groups` and `fallback_keywords` MUST be empty `[]`.
 
+    9.  **Handle Month-Only Queries**: If a user's prompt consists only of a month name (e.g., "agustus", "januari"), you must interpret this as a date range for the entire month. For example, "agustus" becomes `["2025-08-01", "2025-08-31"]`.
+    
     **Output**: Return a single, minified JSON object with keys "type", "dates", "strict_groups", and "fallback_keywords".
 
     ---
@@ -74,6 +76,33 @@ def classify_prompt_and_extract_entities(current_prompt, previous_prompt=""):
     **Example 3 (Bahlil -> Bahlil Lahadalia):**
     Prompt: "data tentang Bahlil"
     Result: {{"type":"New Topic","dates":[],"strict_groups":[["Bahlil"],["Bahlil Lahadalia"]],"fallback_keywords":["Bahlil","Bahlil Lahadalia"]}}
+
+    **Example 4 (Month-Only Follow-Up):**
+    Previous Prompt: "data tentang bahlil lahadalia"
+    Current Prompt: "agustus"
+    Result: {{"type":"Follow-Up","dates":["2025-08-01","2025-08-31"],"strict_groups":[],"fallback_keywords":[]}}
+    
+    # ... (setelah Example 4)
+
+    **Example 5 (Initial Query with Topic and Month):**
+    Prompt: "data prabowo bulan mei"
+    Result: {{"type":"New Topic","dates":["2025-05-01","2025-05-31"],"strict_groups":[["prabowo"],["presiden"]],"fallback_keywords":["Prabowo","Presiden"]}}
+
+    **Example 6 (Analysis Request as Follow-Up):**
+    Previous Prompt: "data surplus keuangan september 1-18"
+    Current Prompt: "analisis sentimen dan engagement nya dong"
+    Result: {{"type":"Follow-Up","dates":[],"strict_groups":[],"fallback_keywords":[]}}
+
+    **Example 7 (Introducing New Topic Conversationally):**
+    Previous Prompt: "data surplus keuangan"
+    Current Prompt: "coba cari soal stimulus keuangan"
+    Result: {{"type":"New Topic","dates":[],"strict_groups":[["stimulus keuangan"]],"fallback_keywords":["stimulus keuangan"]}}
+
+    **Example 8 (Clarifying Previous Follow-up):**
+    Previous Prompt: "analisis sentimennya"
+    Current Prompt: "maksudnya dari data surplus keuangan tadi"
+    Result: {{"type":"Follow-Up","dates":[],"strict_groups":[],"fallback_keywords":[]}}
+    ---
     ---
     """
     try:
