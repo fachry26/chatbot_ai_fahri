@@ -7,15 +7,13 @@ import math
 def apply_custom_css():
     st.markdown("""
         <style>
-        @import url('https://fonts.googleapis.com/css2?family=Poppins:wght@300;400;500;600&display=swap');
-                
-            .stApp{
-            
-                background: linear-gradient(182deg, #c3c3c3, #ffe5e5);
-            }
+        @import url('https://fonts.googleapis.com/css2?family=Roboto:wght@300;400;500;700&display=swap');
+        .stApp{
+            background: linear-gradient(182deg, #f8f7fa, #eeecfd);
+        }
         html, body, [class*="st-"], [data-testid*="st-"] {
-            font-family: 'Poppins', sans-serif;
-            font-size: 12px;
+            font-family: 'Roboto', sans-serif !important;
+            font-size: 13px;
         }
 
         /* --- STYLE FOR THE CHAT INPUT AREA --- */
@@ -60,14 +58,31 @@ def apply_custom_css():
             padding-left: 25px;
         }
         .block-container { padding-top: 2rem; }
-                
-        .stSidebar{
-                    background-image: linear-gradient(15deg, #ad014f, #cf66ff, #ffe5e500);
-                     box-shadow: 5px 0px 10px 1px rgba(0, 0, 0, 0.3);
-                border-top-right-radius: 30px;
-    border-bottom-right-radius: 30px;
-            }
-                
+        
+        /* --- SIDEBAR --- */
+        .stSidebar {
+            background-color: #ffffff !important;
+            box-shadow: 1px 0px 10px rgba(0,0,0,0.1);
+            border-top-right-radius: 10px;
+            border-bottom-right-radius: 10px;
+            padding: 20px 15px !important;
+        }
+
+        .sidebar-title {
+            font-size: 20px;
+            font-weight: 600;
+            text-align: center;
+            margin: 15px 0 20px 0;
+        }
+        .stImageContainer {width: 200%; max-width: 200%;    margin: 0 auto;!important;}
+        
+        div[data-testid="stVerticalBlock"] > div.stColumn {
+            background-color: #fff;
+            border-radius: 12px;
+            padding: 15px;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.05);
+            margin-bottom: 15px;
+        }
         .stAppHeader{
             background: rgba(0,0,0,0) !important;
         }
@@ -184,14 +199,20 @@ def display_raw_data_bubbles(df):
         st.markdown(html_card, unsafe_allow_html=True)
 
 def display_header_logo():
-    if "logo.png":
-        st.image("logo.png", width=150)
+    col1, col2, col3 = st.columns(3)
+    with col1:
+        st.image("logo_setneg.png", width=30)
+    with col2:
+        st.image("logo_ai.png", width=30)
+    with col3:
+        st.image("logo_kurasi.png", width=30)
+
+    st.markdown("<div class='sidebar-title'>Social Media AI</div>", unsafe_allow_html=True)
 
 def display_history(history_list):
+    if not history_list:
+        st.markdown("<div style='text-align:center; color:#888; font-style:italic;'>No recent chat</div>", unsafe_allow_html=True)
+        return
     for i, item in enumerate(history_list):
         if st.button(item["summary"], key=f"history_{i}", use_container_width=True):
             st.session_state.messages = item["messages"]
-            st.session_state.matched_data = item["data"]
-            st.session_state.last_search = item["search_query"]
-            st.session_state.search_performed = True
-            st.rerun()

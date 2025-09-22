@@ -178,6 +178,16 @@ def plot_engagement_by_category(df, category='TOPIK'):
     fig.update_xaxes(title=category)
     
     fig = apply_chart_style(fig, f'Rata-Rata Engagement Rate per {category}')
+    fig.update_layout(
+        legend=dict(
+            orientation="h",
+            yanchor="top",
+            y=-0.6,
+            xanchor="center",
+            x=0.5
+        ),
+        margin=dict(t=80, b=200)  # extra bottom margin
+    )
     st.plotly_chart(fig, use_container_width=True)
     # --- V CITATION ADDED HERE V ---
     st.caption("ⓘ Engagement Rate is calculated as Engagements / Views.")
