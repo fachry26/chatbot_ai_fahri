@@ -89,23 +89,37 @@ def apply_custom_css():
 # ... sisa kode di components.py tetap sama ...
 # (display_raw_data_bubbles, display_header_logo, display_history)
 
+# In components.py, replace the display_raw_data_bubbles function.
+
+# Di file components.py
+
 def display_raw_data_bubbles(df):
     if df.empty:
         st.info("No raw data to display.")
         return
+
+    df_with_virality = df.copy()
+    if 'ENGAGEMENTS' in df_with_virality.columns and 'FOLLOWERS' in df_with_virality.columns:
+        df_with_virality['VIRALITY RATE'] = df_with_virality.apply(
+            lambda row: row['ENGAGEMENTS'] / row['FOLLOWERS'] if row['FOLLOWERS'] > 0 else 0, axis=1
+        )
+    else:
+        df_with_virality['VIRALITY RATE'] = 0
 
     if 'current_page' not in st.session_state:
         st.session_state.current_page = 0
 
     filter_col1, filter_col2 = st.columns(2)
     with filter_col1:
-        unique_sentiments = df['SENTIMEN'].unique() if 'SENTIMEN' in df.columns else []
+        unique_sentiments = df_with_virality['SENTIMEN'].unique() if 'SENTIMEN' in df_with_virality.columns else []
+        # --- FIX: Changed st.multoselect to st.multiselect ---
         selected_sentiments = st.multiselect("Filter by Sentiment", options=unique_sentiments)
     with filter_col2:
-        unique_topics = df['TOPIK'].unique() if 'TOPIK' in df.columns else []
+        unique_topics = df_with_virality['TOPIK'].unique() if 'TOPIK' in df_with_virality.columns else []
+        # --- FIX: Changed st.multoselect to st.multiselect ---
         selected_topics = st.multiselect("Filter by Topic", options=unique_topics)
 
-    filtered_df = df.copy()
+    filtered_df = df_with_virality.copy()
     if selected_sentiments:
         filtered_df = filtered_df[filtered_df['SENTIMEN'].isin(selected_sentiments)]
     if selected_topics:
