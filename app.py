@@ -165,7 +165,7 @@ if prompt := st.chat_input("Ask about the data..."):
         if st.session_state.matched_data.empty and len(st.session_state.messages) > 2:
             prompt_type = "New Topic"
             analysis = classify_prompt_and_extract_entities(prompt, "") # Re-analyze as a new topic
-
+#
         
         # --- NEW ROBUST WORKFLOW ---
         if prompt_type == "New Topic" and not dates:
