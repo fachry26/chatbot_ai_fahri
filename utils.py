@@ -26,17 +26,6 @@ def load_data(file_path="data.xlsx"):
         st.error(f"Error: The file {file_path} was not found. Please create it.")
         return None
 
-# In utils.py
-
-# ... (other functions remain the same) ...
-
-# In utils.py
-
-# ... (other functions remain the same) ...
-
-# In utils.py
-
-# ... (other functions remain the same) ...
 
 def classify_prompt_and_extract_entities(current_prompt, previous_prompt=""):
     system_prompt = f"""
@@ -49,31 +38,34 @@ def classify_prompt_and_extract_entities(current_prompt, previous_prompt=""):
 
     2.  **Extract Dates**: Convert all mentioned dates to `YYYY-MM-DD` format.
 
-    3.  **Generate Search Keywords (for "New Topic" only):**
+    3.  **Handle Date-Only Follow-Ups**: If the current prompt is clearly just a request for a different date based on the previous topic (e.g., "bagaimana dengan 23 agustus?", "23 agustus saja"), you MUST classify it as **"Follow-Up"**. The `strict_groups` and `fallback_keywords` must be empty `[]` as per the "Follow-Up" rule.
+
+    4.  **Generate Search Keywords (for "New Topic" only):**
         - Identify the CORE ENTITIES (people, organizations, specific topics).
         - **`strict_groups`**: Create a list of lists for high-relevance "AND" searches.
         - **`fallback_keywords`**: Create a flat list for a broader "OR" search.
 
-    4.  **Handle Corrections**: If the current prompt seems to be correcting a typo in the previous prompt (e.g., using words like 'maksud saya', 'maaf', or just providing a corrected name), extract the keywords from the **corrected version only**. Do not combine the typo with the correction.
+    5.  **Handle Corrections**: If the current prompt seems to be correcting a typo, extract keywords from the **corrected version only**.
 
-    5.  **Apply Specific Expansions**: To ensure comprehensive results for key topics, apply ONLY the following expansions:
+    6.  **Apply Specific Expansions**: To ensure comprehensive results for key topics, apply ONLY the following expansions:
         - If the entity is "Prabowo", you MUST also add "Presiden".
         - If the entity is "Setneg", you MUST also add "Sekertariat Negara".
         - If the entity is "Bahlil", you MUST also add his full name "Bahlil Lahadalia".
 
-    6.  **Exclude Non-Searchable Terms**: Do NOT include instructional, conversational (e.g., 'maaf', 'maksud saya'), or analytical words in the keywords. Focus only on the 'who' or 'what'.
+    7.  **Exclude Non-Searchable Terms**: Do NOT include instructional or conversational words in the keywords. Focus only on the 'who' or 'what'.
     
-    7.  **For "Follow-Up" prompts**, `strict_groups` and `fallback_keywords` MUST be empty `[]`.
+    8.  **For "Follow-Up" prompts** (that are NOT simple date changes), `strict_groups` and `fallback_keywords` MUST be empty `[]`.
 
     **Output**: Return a single, minified JSON object with keys "type", "dates", "strict_groups", and "fallback_keywords".
 
     ---
     **EXAMPLES OF CORRECT BEHAVIOR:**
 
-    **Example 1 (Correction):**
-    Previous Prompt: "data bahli"
-    Current Prompt: "maksud saya bahlil"
-    Result: {{"type":"New Topic","dates":[],"strict_groups":[["bahlil"],["bahlil lahadalia"]],"fallback_keywords":["Bahlil","Bahlil Lahadalia"]}}
+    # THIS IS THE NEW, CORRECTED EXAMPLE
+    **Example 1 (Date-Only Follow-Up):**
+    Previous Prompt: "data prabowo 20 agustus"
+    Current Prompt: "kalau 23 agustus?"
+    Result: {{"type":"Follow-Up","dates":["2025-08-23"],"strict_groups":[],"fallback_keywords":[]}}
 
     **Example 2 (Prabowo -> Presiden):**
     Prompt: "data prabowo 18 agustus"
@@ -104,50 +96,62 @@ def classify_prompt_and_extract_entities(current_prompt, previous_prompt=""):
         st.error(f"Error classifying prompt: {e}")
         return {"type": "New Topic", "dates": [], "strict_groups": [[current_prompt]], "fallback_keywords": [current_prompt]}
 
-# ... (the rest of the functions in utils.py remain the same) ...
 
 def search_data(dataframe, strict_groups, fallback_keywords, dates):
-    if dataframe is None: return pd.DataFrame()
+    if dataframe is None:
+        return pd.DataFrame()
 
-    # --- TIER 1: Strict Search ---
+    # --- STEP 1: APPLY DATE FILTER FIRST ---
+    date_filtered_df = dataframe.copy()
+    if dates:
+        target_dates = sorted([pd.to_datetime(d).date() for d in dates])
+
+        if len(target_dates) == 1:
+            date_filtered_df = date_filtered_df[date_filtered_df['TANGGAL PUBLIKASI'].dt.date == target_dates[0]]
+        elif len(target_dates) == 2:
+            start_date, end_date = target_dates[0], target_dates[1]
+            date_filtered_df = date_filtered_df[
+                (date_filtered_df['TANGGAL PUBLIKASI'].dt.date >= start_date) &
+                (date_filtered_df['TANGGAL PUBLIKASI'].dt.date <= end_date)
+            ]
+        else:
+            date_filtered_df = date_filtered_df[date_filtered_df['TANGGAL PUBLIKASI'].dt.date.isin(target_dates)]
+
+    if date_filtered_df.empty:
+        return pd.DataFrame()
+
+    # --- FIX: If no keywords are provided, return all data for the filtered date range ---
+    if not strict_groups and not fallback_keywords:
+        return date_filtered_df.sort_values(by='TANGGAL PUBLIKASI')
+
+    # --- STEP 2: NOW, PERFORM KEYWORD SEARCH ONLY ON THE DATE-FILTERED DATA ---
+    # TIER 1: Strict Search
     strict_results_df = pd.DataFrame()
     if strict_groups:
         all_matched_dfs = []
         for group in strict_groups:
             if not group: continue
-            temp_df = dataframe.copy()
+            temp_df = date_filtered_df.copy()
             for keyword in group:
                 temp_df = temp_df[temp_df['KONTEN'].str.contains(keyword, case=False, na=False)]
                 if temp_df.empty: break
             if not temp_df.empty:
                 all_matched_dfs.append(temp_df)
-        
+
         if all_matched_dfs:
             strict_results_df = pd.concat(all_matched_dfs).drop_duplicates().reset_index(drop=True)
 
     final_df = strict_results_df
 
-    # --- TIER 2: Fallback Search (if Tier 1 found nothing) ---
+    # TIER 2: Fallback Search (if Tier 1 found nothing)
     if final_df.empty and fallback_keywords:
         search_pattern = '|'.join(fallback_keywords)
-        fallback_df = dataframe[dataframe['KONTEN'].str.contains(search_pattern, case=False, na=False)].copy()
+        fallback_df = date_filtered_df[date_filtered_df['KONTEN'].str.contains(search_pattern, case=False, na=False)].copy()
         final_df = fallback_df
-
-    # --- Final Date Filtering (NOW HANDLES RANGES) ---
-    if dates and not final_df.empty:
-        target_dates = sorted([pd.to_datetime(d).date() for d in dates])
-        
-        if len(target_dates) == 1:
-            final_df = final_df[final_df['TANGGAL PUBLIKASI'].dt.date == target_dates[0]]
-        elif len(target_dates) == 2:
-            start_date, end_date = target_dates[0], target_dates[1]
-            final_df = final_df[(final_df['TANGGAL PUBLIKASI'].dt.date >= start_date) & (final_df['TANGGAL PUBLIKASI'].dt.date <= end_date)]
-        else:
-            final_df = final_df[final_df['TANGGAL PUBLIKASI'].dt.date.isin(target_dates)]
 
     if not final_df.empty:
         final_df = final_df.sort_values(by='TANGGAL PUBLIKASI')
-        
+
     return final_df
 
 # --- NEW: Function to generate structured data for the AI ---
@@ -252,32 +256,41 @@ def generate_structured_context_from_data(df):
     }
     return structured_context
 
-# --- UPDATED: The AI response function now uses the structured context ---
-# In utils.py
-
-# ... (all other functions like configure_openai, load_data, classify_prompt_and_extract_entities, search_data, generate_structured_context_from_data remain the same) ...
-
-# --- UPDATED: The AI response function now uses the structured context AND the search query ---
 def get_ai_response(prompt, matched_data_df, search_query):
-    if matched_data_df.empty:
-        context = "No relevant data found. Inform the user gracefully and suggest another search."
+    # Extract the user's search topic for better contextual responses
+    strict_keywords = {kw for group in search_query.get('strict_groups', []) for kw in group}
+    fallback_keywords = set(search_query.get('fallback_keywords', []))
+    all_keywords = sorted(list(strict_keywords | fallback_keywords))
+    
+    # Handle empty vs. non-empty topic context
+    if all_keywords:
+        topic_context = f"<b>{', '.join(all_keywords)}</b>"
+        context_awareness_instruction = f"1.  **CONTEXT AWARENESS:** The data you are analyzing has ALREADY been filtered for the topic(s): {topic_context}. ALL data in the JSON is relevant to this topic. Frame your answers directly and confidently without stating that the data is limited.\n"
     else:
-        # Generate the new structured data context
+        topic_context = "all topics for the selected date"
+        context_awareness_instruction = "1.  **CONTEXT AWARENESS:** The data you are analyzing has been filtered by date but NOT by a specific topic. The user has asked for a general overview of the day. Summarize the key metrics and findings for the given date range.\n"
+
+
+    # Check if the search returned any data
+    if matched_data_df.empty:
+        context = (
+            "You are a helpful AI data analyst. Your primary language is Indonesian.\n"
+            "**CRITICAL INSTRUCTION:** A search was just performed for the topic "
+            f"{topic_context} based on the user's latest prompt ('{prompt}'), but that search returned **ZERO** results. "
+            "Your primary task is to inform the user gracefully that no data could be found for their specific request. "
+            "Clearly acknowledge the topic or date they asked for and state that the data for it is unavailable. "
+            "Suggest they try another date or topic. Do not mention any previous data or searches."
+        )
+    else:
+        # --- This is the original logic for when data IS found ---
         structured_data = generate_structured_context_from_data(matched_data_df)
         data_as_json_string = json.dumps(structured_data, indent=2)
-
-        # --- NEW: Extract keywords to give the AI context about the search topic ---
-        strict_keywords = {kw for group in search_query.get('strict_groups', []) for kw in group}
-        fallback_keywords = set(search_query.get('fallback_keywords', []))
-        all_keywords = sorted(list(strict_keywords | fallback_keywords))
-        topic_context = f"The user is asking about '{', '.join(all_keywords)}'."
-
         context = (
             "You are a helpful and expert AI data analyst for a social media dashboard. Your primary language is Indonesian.But domain knowledge for MEDIA e.g. 'likes', 'comments', 'post', 'views', 'enggagement' remains English.\n"
             "You will be given a JSON object that contains all the data currently being visualized on the user's screen. "
             "Your task is to analyze this JSON data to answer the user's question with precision and clarity.\n\n"
             "**CRITICAL INSTRUCTIONS:**\n"
-            f"1.  **CONTEXT AWARENESS:** The data you are analyzing has ALREADY been filtered for the topic(s): <b>{', '.join(all_keywords)}</b>. ALL data in the JSON is relevant to this topic. Frame your answers directly and confidently without stating that the data is limited.\n"
+            f"{context_awareness_instruction}"
             "2.  **FORMATTING:** For emphasis or bolding, you MUST use HTML `<b>` tags, not Markdown (`**`). The user interface can only render HTML tags.\n"
             "3.  **DATA-DRIVEN:** Base your answers *exclusively* on the data in the JSON. Refer to specific numbers, percentages, topics, or accounts to support your answer.\n"
             "4.  **LANGUAGE:** All your responses must be in clear and professional Indonesian. But domain knowledge for MEDIA e.g. 'likes', 'comments', 'post', 'views', 'enggagement' remains English.\n\n"
@@ -286,7 +299,7 @@ def get_ai_response(prompt, matched_data_df, search_query):
             "Based *only* on the JSON data above, answer the user's prompt."
         )
 
-    # The rest of the function remains the same
+    # The rest of the function remains the same, handling the API call
     conversation_history = st.session_state.messages.copy()
     conversation_history.insert(0, {"role": "system", "content": context})
     try:
@@ -301,7 +314,7 @@ def get_ai_response(prompt, matched_data_df, search_query):
     except Exception as e:
         st.error(f"Error generating AI response: {e}")
         yield "Maaf, terjadi kesalahan saat memproses permintaan Anda."
-
+        
 def get_no_data_suggestion(prompt):
     """Generates a streaming response for when no data is found."""
     response_text = f"Maaf, saya tidak dapat menemukan data apa pun yang terkait dengan '{prompt}'. Silakan coba kata kunci atau topik lain."

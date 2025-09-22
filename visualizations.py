@@ -237,3 +237,274 @@ def plot_followers_vs_engagement(df):
     # --- V CITATION ADDED HERE V ---
     st.caption("ⓘ Engagement Rate is calculated as Engagements / Views.")
     # --- ^ CITATION ADDED HERE ^ ---
+
+# --- NEW VISUALIZATION FUNCTIONS ---
+# In visualizations.py, replace the old top performers functions with this one.
+
+def display_top_performers(df):
+    """Displays a tab with multiple top performer tables for key metrics."""
+    st.subheader("🏆 Top Performers by Account")
+
+    metrics_to_plot = {
+        'FOLLOWERS': 'Top by Followers',
+        'ENGAGEMENTS': 'Top by Engagements',
+        'ESMR': 'Top by ESMR',
+        'VIEWS': 'Top by Views',
+        'LIKES': 'Top by Likes'
+    }
+
+    # Use columns for a more compact and readable layout
+    col1, col2 = st.columns(2)
+    
+    # Split the list of metrics to display them across two columns
+    metrics_list = list(metrics_to_plot.items())
+    
+    with col1:
+        # Display the first 3 metrics in the left column
+        for metric_col, title in metrics_list[:3]:
+            if metric_col in df.columns:
+                st.markdown(f"**{title}**")
+                
+                # Group by account, sum the metric, and get top 10
+                top_df = df.groupby('AKUN')[metric_col].sum().nlargest(10).reset_index()
+                total_metric = df[metric_col].sum()
+
+                # Rename columns for clarity
+                top_df.columns = ['Account', metric_col.title()]
+                # Make the rank start from 1 instead of 0
+                top_df.index = top_df.index + 1
+                
+                # Display the total and the table
+                st.metric(label=f"Total {metric_col.title()}", value=f"{total_metric:,.0f}")
+                st.dataframe(
+                    top_df.style.format({metric_col.title(): '{:,.0f}'}), # Format numbers with commas
+                    use_container_width=True
+                )
+                st.write("") # Add vertical space
+
+    with col2:
+        # Display the remaining metrics in the right column
+        for metric_col, title in metrics_list[3:]:
+            if metric_col in df.columns:
+                st.markdown(f"**{title}**")
+                
+                top_df = df.groupby('AKUN')[metric_col].sum().nlargest(10).reset_index()
+                total_metric = df[metric_col].sum()
+
+                top_df.columns = ['Account', metric_col.title()]
+                top_df.index = top_df.index + 1
+                
+                st.metric(label=f"Total {metric_col.title()}", value=f"{total_metric:,.0f}")
+                st.dataframe(
+                    top_df.style.format({metric_col.title(): '{:,.0f}'}),
+                    use_container_width=True
+                )
+                st.write("") # Add vertical spac
+
+# In visualizations.py, add this new function to the end of the file.
+
+# In visualizations.py, replace the old plot_geospatial_analysis function with this new one.
+
+def plot_geospatial_analysis(df):
+    """Displays a more robust analysis for location and source data, including tables."""
+    st.subheader("🗺️ Geospatial & Source Analysis")
+
+    # --- 1. Locational Analysis ---
+    if 'LOKASI' in df.columns and not df['LOKASI'].dropna().empty:
+        location_counts = df['LOKASI'].value_counts().reset_index()
+        location_counts.columns = ['LOKASI', 'Posts']
+        
+        # A dictionary to map major Indonesian provinces to coordinates for the bubble map
+        indonesia_coords = {
+            'DKI Jakarta': {'lat': -6.2088, 'lon': 106.8456}, 'Jawa Barat': {'lat': -6.9175, 'lon': 107.6191},
+            'Jawa Tengah': {'lat': -7.1509, 'lon': 110.1403}, 'Jawa Timur': {'lat': -7.5361, 'lon': 112.2384},
+            'Banten': {'lat': -6.4238, 'lon': 106.1662}, 'DI Yogyakarta': {'lat': -7.7956, 'lon': 110.3695},
+            'Aceh': {'lat': 4.6951, 'lon': 96.7494}, 'Sumatera Utara': {'lat': 2.1154, 'lon': 99.5451},
+            'Sumatera Barat': {'lat': -0.9471, 'lon': 100.3636}, 'Riau': {'lat': 0.5071, 'lon': 101.4478},
+            'Jambi': {'lat': -1.6101, 'lon': 103.6131}, 'Sumatera Selatan': {'lat': -3.3194, 'lon': 103.9141},
+            'Bengkulu': {'lat': -3.7928, 'lon': 102.2607}, 'Lampung': {'lat': -4.5586, 'lon': 105.4068},
+            'Kalimantan Barat': {'lat': -0.0222, 'lon': 109.3443}, 'Kalimantan Tengah': {'lat': -1.6817, 'lon': 113.3824},
+            'Kalimantan Selatan': {'lat': -3.0926, 'lon': 115.2838}, 'Kalimantan Timur': {'lat': 1.6406, 'lon': 116.4194},
+            'Sulawesi Utara': {'lat': 1.4748, 'lon': 124.8421}, 'Sulawesi Tengah': {'lat': -1.4301, 'lon': 121.4456},
+            'Sulawesi Selatan': {'lat': -3.6447, 'lon': 119.9424}, 'Sulawesi Tenggara': {'lat': -4.1449, 'lon': 122.1746},
+            'Bali': {'lat': -8.4095, 'lon': 115.1889}, 'Nusa Tenggara Barat': {'lat': -8.6529, 'lon': 117.3616},
+            'Nusa Tenggara Timur': {'lat': -8.6574, 'lon': 121.0794}, 'Maluku': {'lat': -3.2384, 'lon': 130.1453},
+            'Papua': {'lat': -4.2699, 'lon': 138.0804}
+        }
+        
+        # --- Robust Matching Logic ---
+        # Create a normalized lookup dictionary (lowercase, no spaces)
+        coords_lookup = {k.lower().replace(" ", ""): v for k, v in indonesia_coords.items()}
+        
+        def get_coords(location_name):
+            if not isinstance(location_name, str): return None
+            normalized_name = location_name.lower().replace(" ", "")
+            return coords_lookup.get(normalized_name)
+
+        # Apply the matching to get coordinates
+        location_counts['coords'] = location_counts['LOKASI'].apply(get_coords)
+        
+        # Split into mapped and unmapped data for debugging and plotting
+        mapped_df = location_counts.dropna(subset=['coords']).copy()
+        unmapped_df = location_counts[location_counts['coords'].isna()]
+        
+        if not mapped_df.empty:
+            mapped_df['lat'] = mapped_df['coords'].apply(lambda x: x['lat'])
+            mapped_df['lon'] = mapped_df['coords'].apply(lambda x: x['lon'])
+
+        # --- Display Table and Map side-by-side ---
+        col1, col2 = st.columns([1, 2])
+
+        with col1:
+            st.markdown("**Top 10 Locations by Post Count**")
+            top_10_table = location_counts[['LOKASI', 'Posts']].head(10)
+            top_10_table.index = top_10_table.index + 1
+            st.dataframe(top_10_table, use_container_width=True)
+
+        with col2:
+            if not mapped_df.empty:
+                fig_map = px.scatter_geo(mapped_df, lat='lat', lon='lon', size='Posts',
+                                         hover_name='LOKASI', projection="natural earth",
+                                         scope='asia', center={'lat': -2.5, 'lon': 118},
+                                         color='Posts', color_continuous_scale=px.colors.sequential.Plasma,
+                                         hover_data={'Posts': ':,d', 'lat': False, 'lon': False})
+                fig_map = apply_chart_style(fig_map, "Geographic Distribution of Posts")
+                fig_map.update_layout(height=400)
+                st.plotly_chart(fig_map, use_container_width=True)
+            else:
+                st.info("Could not map any locations from your data. Check names in the 'LOKASI' column.")
+        
+        # --- Optional Debugger ---
+        with st.expander("View Data Mapping Info"):
+            st.write("This section helps you see which locations were successfully found for the map.")
+            st.markdown(f"**✅ Mapped Locations:** `{', '.join(mapped_df['LOKASI'].tolist())}`")
+            if not unmapped_df.empty:
+                st.markdown(f"**❌ Unmapped Locations:** `{', '.join(unmapped_df['LOKASI'].tolist())}`")
+
+    else:
+        st.info("No location data (LOKASI) available to display analysis.")
+
+    st.markdown("---")
+
+    # --- 2. Source Treemap (Unchanged) ---
+    if 'SUMBER' in df.columns and not df['SUMBER'].dropna().empty:
+        source_counts = df['SUMBER'].value_counts().reset_index()
+        source_counts.columns = ['SUMBER', 'count']
+        
+        fig_treemap = px.treemap(source_counts, path=[px.Constant("All Sources"), 'SUMBER'], values='count',
+                                 color='count', color_continuous_scale='Blues',
+                                 hover_data={'count': ':,d'})
+        fig_treemap.update_traces(textinfo="label+value", hovertemplate='<b>%{label}</b><br>Post Count: %{value}<extra></extra>')
+        fig_treemap = apply_chart_style(fig_treemap, "Distribution by Media Source")
+        fig_treemap.update_layout(height=400)
+        st.plotly_chart(fig_treemap, use_container_width=True)
+    else:
+        st.info("No source data (SUMBER) available to display treemap.")
+
+# In visualizations.py, add this new function to the end of the file.
+
+def plot_performance_quadrant(df):
+    """
+    Displays a quadrant analysis of accounts based on followers and engagement rate,
+    and lists the top accounts in each quadrant.
+    """
+    st.subheader("Performance Quadrant Analysis")
+
+    required_cols = ['AKUN', 'FOLLOWERS', 'ENGAGEMENTS', 'VIEWS']
+    if not all(col in df.columns for col in required_cols) or df[required_cols].dropna().empty:
+        st.info("Not enough data for Quadrant Analysis. Requires Account, Followers, Engagements, and Views.")
+        return
+
+    # --- 1. Data Preparation ---
+    # Calculate Engagement Rate per post
+    df_copy = df.copy()
+    df_copy['ENGAGEMENT RATE'] = df_copy.apply(
+        lambda row: row['ENGAGEMENTS'] / row['VIEWS'] if row['VIEWS'] > 0 else 0, axis=1
+    )
+
+    # Aggregate by account to get their average performance
+    account_performance = df_copy.groupby('AKUN').agg(
+        Avg_Followers=('FOLLOWERS', 'mean'),
+        Avg_ER=('ENGAGEMENT RATE', 'mean')
+    ).reset_index()
+
+    if len(account_performance) < 4:
+         st.info("Need at least 4 unique accounts to perform a quadrant analysis.")
+         return
+
+    # --- 2. Calculate Quadrant Boundaries (using median for robustness) ---
+    median_followers = account_performance['Avg_Followers'].median()
+    median_er = account_performance['Avg_ER'].median()
+
+    # --- 3. Create the Scatter Plot ---
+    fig = px.scatter(
+        account_performance,
+        x='Avg_Followers',
+        y='Avg_ER',
+        hover_name='AKUN',
+        log_x=True, # Use log scale for followers to better visualize
+        hover_data={'Avg_Followers': ':,.0f', 'Avg_ER': ':.2%'}
+    )
+
+    # Add quadrant lines and labels
+    fig.add_vline(x=median_followers, line_dash="dash", line_color="grey")
+    fig.add_hline(y=median_er, line_dash="dash", line_color="grey")
+    fig.add_annotation(x=median_followers*1.1, y=median_er*1.1, text="<b>🏆 Champions</b><br>(High Followers, High ER)", showarrow=False, bgcolor="#d1fecb", borderpad=4)
+    fig.add_annotation(x=median_followers*0.9, y=median_er*1.1, text="<b>💎 Hidden Gems</b><br>(Low Followers, High ER)", showarrow=False, xanchor='right', bgcolor="#ccf2ff", borderpad=4)
+    fig.add_annotation(x=median_followers*0.9, y=median_er*0.9, text="<b>🌱 Niche Players</b><br>(Low Followers, Low ER)", showarrow=False, xanchor='right', yanchor='top', bgcolor="#fff5c0", borderpad=4)
+    fig.add_annotation(x=median_followers*1.1, y=median_er*0.9, text="<b>📢 Megaphones</b><br>(High Followers, Low ER)", showarrow=False, yanchor='top', bgcolor="#ffddc7", borderpad=4)
+
+    fig = apply_chart_style(fig, "Account Performance Quadrants")
+    fig.update_layout(height=500)
+    st.plotly_chart(fig, use_container_width=True)
+
+    # --- 4. Categorize and List Top Accounts ---
+    def categorize_account(row):
+        if row['Avg_Followers'] >= median_followers and row['Avg_ER'] >= median_er:
+            return 'Champions'
+        elif row['Avg_Followers'] < median_followers and row['Avg_ER'] >= median_er:
+            return 'Hidden Gems'
+        elif row['Avg_Followers'] < median_followers and row['Avg_ER'] < median_er:
+            return 'Niche Players'
+        else:
+            return 'Megaphones'
+
+    account_performance['Quadrant'] = account_performance.apply(categorize_account, axis=1)
+
+    st.markdown("---")
+    st.subheader("Top Accounts in Each Quadrant")
+
+    q1, q2, q3, q4 = st.columns(4)
+
+    with q1:
+        st.markdown("🏆 **Champions**")
+        st.dataframe(
+            account_performance[account_performance['Quadrant'] == 'Champions']
+            .sort_values('Avg_ER', ascending=False).head(10)[['AKUN', 'Avg_ER']]
+            .style.format({'Avg_ER': '{:.2%}'}), 
+            use_container_width=True
+        )
+    with q2:
+        st.markdown("💎 **Hidden Gems**")
+        st.dataframe(
+            account_performance[account_performance['Quadrant'] == 'Hidden Gems']
+            .sort_values('Avg_ER', ascending=False).head(10)[['AKUN', 'Avg_ER']]
+            .style.format({'Avg_ER': '{:.2%}'}), 
+            use_container_width=True
+        )
+    with q3:
+        st.markdown("📢 **Megaphones**")
+        st.dataframe(
+            account_performance[account_performance['Quadrant'] == 'Megaphones']
+            .sort_values('Avg_Followers', ascending=False).head(10)[['AKUN', 'Avg_Followers']]
+            .style.format({'Avg_Followers': '{:,.0f}'}), 
+            use_container_width=True
+        )
+    with q4:
+        st.markdown("🌱 **Niche Players**")
+        st.dataframe(
+            account_performance[account_performance['Quadrant'] == 'Niche Players']
+            .sort_values('Avg_Followers', ascending=False).head(10)[['AKUN', 'Avg_Followers']]
+            .style.format({'Avg_Followers': '{:,.0f}'}), 
+            use_container_width=True
+        )

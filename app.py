@@ -11,7 +11,8 @@ from utils import (
 from visualizations import (
     display_summary_metrics, plot_sentiment_distribution, plot_engagement_by_category,
     plot_time_series, plot_followers_vs_engagement, display_top_viral_posts,
-    display_data_context  # <-- ADD THIS IMPORT
+    display_data_context, display_top_performers, plot_geospatial_analysis,
+    plot_performance_quadrant # <-- ADD THIS IMPORT
 )
 from components import (
     apply_custom_css, display_raw_data_bubbles, display_history, display_header_logo
@@ -85,11 +86,7 @@ with col1:
                 """, unsafe_allow_html=True
             )
 
-# --- COLUMN 2 & 3 (No changes here) ---
-# In app.py, find the section for column 2
-
-# In app.py, replace the entire `with col2:` block with this one.
-
+# --- COLUMN 2: VISUALIZATIONS ---
 with col2:
     st.subheader("📊 Visual Insights")
     with st.container(height=550, border=True):
@@ -102,34 +99,41 @@ with col2:
 
             display_data_context(data_for_viz, st.session_state.last_search)
 
-            tab1, tab2, tab3, tab4, tab5 = st.tabs(["Summary", "Sentiment", "Engagement", "Trends", "Performance"])
+            tabs = st.tabs([
+                            "Summary", "Sentiment" ,"Engagement", "Trends", 
+                            "Performance","🏆 Top Performers", "🗺️ Geospatial"
+                            ])
             
-            with tab1:
+            # --- VVV THIS ENTIRE BLOCK IS REVISED ---
+            with tabs[0]: # Summary
                 display_summary_metrics(data_for_viz)
                 display_top_viral_posts(data_for_viz)
             
-            with tab2:
+            with tabs[1]: # Sentiment
                 plot_sentiment_distribution(data_for_viz)
             
-            with tab3:
-                # Assuming 'GRUP' is a relevant category. Change if needed.
+            with tabs[2]: # Engagement
                 plot_engagement_by_category(data_for_viz, category='TOPIK')
                 plot_engagement_by_category(data_for_viz, category='GRUP')
             
-            with tab4:
+            with tabs[3]: # Trends
                 plot_time_series(data_for_viz)
                 
-            with tab5:
+            with tabs[4]: # Performance
                 plot_followers_vs_engagement(data_for_viz)
+                st.markdown("---") # Add a separator
+                plot_performance_quadrant(data_for_viz)
+            with tabs[5]: # Top Performers
+                display_top_performers(data_for_viz)
+            with tabs[6]: # Geospatial
+                plot_geospatial_analysis(data_for_viz)
+# --- ^^^ ADD THIS NEW BLOCK RIGHT AFTER IT ^^^ ---
+
+# --- COLUMN 3: RAW DATA ---
 with col3:
     st.subheader("📝 Raw Data")
     with st.container(height=550, border=True):
         display_raw_data_bubbles(st.session_state.matched_data)
-
-
-# In app.py, at the end of the file
-
-# In app.py, at the end of the file
 
 # --- CHAT INPUT & PROCESSING ---
 if prompt := st.chat_input("Ask about the data..."):
@@ -157,17 +161,14 @@ if prompt := st.chat_input("Ask about the data..."):
         dates = analysis.get("dates", [])
         
         # --- NEW ROBUST WORKFLOW ---
-        # If it's a new topic but the user forgot a date, stop and ask.
         if prompt_type == "New Topic" and not dates:
-            st.session_state.search_performed = False # No search was done
-            st.session_state.matched_data = pd.DataFrame() # Clear any previous data
+            st.session_state.search_performed = False 
+            st.session_state.matched_data = pd.DataFrame() 
             
-            # IMPORTANT: Save the keywords the AI found for the next turn
             strict_groups = analysis.get("strict_groups", [])
             fallback_keywords = analysis.get("fallback_keywords", [])
             st.session_state.last_search = {"strict_groups": strict_groups, "fallback_keywords": fallback_keywords}
 
-            # A simple generator to stream our hardcoded response
             def missing_date_response():
                 response_text = "Tentu, saya bisa carikan datanya. Mohon informasikan tanggal atau rentang tanggal spesifik yang Anda inginkan."
                 for word in response_text.split():
@@ -178,29 +179,21 @@ if prompt := st.chat_input("Ask about the data..."):
 
         # Otherwise, proceed with the normal search logic
         else:
-            if prompt_type == "New Topic": # This now implies dates are present
+            if prompt_type == "New Topic":
                 strict_groups = analysis.get("strict_groups", [])
                 fallback_keywords = analysis.get("fallback_keywords", [])
                 st.session_state.last_search = {"strict_groups": strict_groups, "fallback_keywords": fallback_keywords}
                 st.session_state.matched_data = search_data(df, strict_groups, fallback_keywords, dates)
             
-            elif prompt_type == "Follow-Up": # Follow-up can have dates or not
+            elif prompt_type == "Follow-Up": 
                 last_search_params = st.session_state.last_search
-                # Only re-run the search if new dates are provided in the follow-up
                 if dates:
                     st.session_state.matched_data = search_data(df, last_search_params["strict_groups"], last_search_params["fallback_keywords"], dates)
-                # If no new dates, we just generate a new AI response on the *existing* data
             
             st.session_state.search_performed = True
 
-            # Get AI response stream
-            if not st.session_state.matched_data.empty:
-                # --- VVV THIS IS THE ONLY LINE TO CHANGE IN THIS FILE VVV ---
-                response_stream = get_ai_response(prompt, st.session_state.matched_data, st.session_state.last_search)
-                # --- ^^^ THIS IS THE ONLY LINE TO CHANGE IN THIS FILE ^^^ ---
-            else:
-                # This handles cases where a search was performed but found nothing
-                response_stream = get_no_data_suggestion(prompt)
+            # Get AI response stream (now handles both cases)
+            response_stream = get_ai_response(prompt, st.session_state.matched_data, st.session_state.last_search)
 
     # --- STREAM RESPONSE TO UI (This part is now universal) ---
     if response_stream:
@@ -222,7 +215,6 @@ if prompt := st.chat_input("Ask about the data..."):
         st.session_state.messages.append({"role": "assistant", "content": full_response})
 
     # --- UPDATE HISTORY & RERUN ---
-    # Only add to history if it was a successful "New Topic" search
     if prompt_type == "New Topic" and not st.session_state.matched_data.empty:
         history_summary = f"投 {prompt[:30]}..."
         st.session_state.history.append({
