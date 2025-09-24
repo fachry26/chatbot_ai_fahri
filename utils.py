@@ -248,6 +248,7 @@ def get_contextual_chatter_response(client, conversation_history):
     2.  If the user clearly wants to search for **new data or a new topic**, you MUST guide them to ask a specific question that includes a topic and a date. For example: "Tentu, saya bisa bantu. Silakan ajukan pertanyaan spesifik seperti 'carikan data Prabowo tanggal 20 agustus'."
     3.  Base your answers ONLY on the context from the conversation history. Do not invent data or analysis.
     4.  Keep your responses concise and to the point.
+    5.  IMPORTANT FORMATTING RULE: When writing mathematical formulas, you MUST wrap all LaTeX code with dollar symbols. Use single dollar signs for inline formulas (example: $E=mc^2$) or double dollar signs for block formulas (example: $$\frac{a}{b}$$). Never provide raw LaTeX output without the dollar sign delimiters.
     """
     
     # Membangun pesan untuk API, memasukkan system prompt di awal
@@ -271,75 +272,124 @@ def get_contextual_chatter_response(client, conversation_history):
         st.error(f"Error generating contextual chatter: {e}")
         yield "Maaf, ada sedikit kendala. Bisa diulangi lagi pertanyaannya?"
 
-# ... (all other functions like generate_structured_context_from_data, get_ai_response, etc., remain unchanged) ...
 
 def generate_structured_context_from_data(df):
-    # FUNGSI INI TIDAK BERUBAH
+    """
+    Generates a rich, structured dictionary summarizing the key analytical insights
+    from the provided DataFrame, mirroring the advanced logic in visualizations.py.
+    """
     if df.empty:
         return {"error": "No data available."}
+
     df_copy = df.copy()
-    if 'ENGAGEMENTS' in df_copy.columns and 'VIEWS' in df_copy.columns:
-        df_copy['ENGAGEMENT RATE'] = df_copy.apply(
-            lambda row: row['ENGAGEMENTS'] / row['VIEWS'] if row['VIEWS'] > 0 else 0, axis=1)
-    else:
-        df_copy['ENGAGEMENT RATE'] = 0
-    if 'ENGAGEMENTS' in df_copy.columns and 'FOLLOWERS' in df_copy.columns:
-        df_copy['VIRALITY RATE'] = df_copy.apply(
-            lambda row: row['ENGAGEMENTS'] / row['FOLLOWERS'] if row['FOLLOWERS'] > 0 else 0, axis=1)
-    else:
-        df_copy['VIRALITY RATE'] = 0
+
+    # --- 1. Feature Engineering: Calculate core rates ---
+    # Ensure required columns are numeric and handle potential errors
+    for col in ['ENGAGEMENTS', 'VIEWS', 'FOLLOWERS', 'LIKES', 'COMMENTS', 'SHARES']:
+        if col in df_copy.columns:
+            df_copy[col] = pd.to_numeric(df_copy[col], errors='coerce').fillna(0)
+
+    df_copy['ENGAGEMENT RATE'] = df_copy.apply(
+        lambda row: row['ENGAGEMENTS'] / row['VIEWS'] if row.get('VIEWS', 0) > 0 else 0, axis=1
+    )
+    df_copy['VIRALITY RATE'] = df_copy.apply(
+        lambda row: row['ENGAGEMENTS'] / row.get('FOLLOWERS', 0) if row.get('FOLLOWERS', 0) > 0 else 0, axis=1
+    )
+
+    # --- 2. Overall Summary Metrics (Enriched) ---
     total_posts = len(df_copy)
-    total_views = df_copy['VIEWS'].sum() if 'VIEWS' in df_copy.columns else 0
-    avg_engagement_rate = df_copy['ENGAGEMENT RATE'].mean()
+    total_engagements = int(df_copy['ENGAGEMENTS'].sum()) if 'ENGAGEMENTS' in df_copy.columns else 0
+    total_views = int(df_copy['VIEWS'].sum()) if 'VIEWS' in df_copy.columns else 0
+    total_likes = int(df_copy['LIKES'].sum()) if 'LIKES' in df_copy.columns else 0
     min_date = df_copy['TANGGAL PUBLIKASI'].min().strftime('%Y-%m-%d')
     max_date = df_copy['TANGGAL PUBLIKASI'].max().strftime('%Y-%m-%d')
+    avg_engagement_rate = df_copy['ENGAGEMENT RATE'].mean()
+
+    overall_summary = {
+        "total_posts": total_posts,
+        "total_engagements": total_engagements,
+        "total_views": total_views,
+        "total_likes": total_likes,
+        "average_engagement_rate": f"{avg_engagement_rate:.2%}",
+        "date_range": {"start": min_date, "end": max_date}
+    }
+
+    # --- 3. Distribution Summaries ---
     sentiment_counts = df_copy['SENTIMEN'].value_counts().to_dict() if 'SENTIMEN' in df_copy.columns else {}
-    engagement_by_topic = {}
-    if 'TOPIK' in df_copy.columns:
-        engagement_by_topic = df_copy.groupby('TOPIK')['ENGAGEMENT RATE'].mean().sort_values(ascending=False).to_dict()
-    engagement_by_grup = {}
-    if 'GRUP' in df_copy.columns:
-        engagement_by_grup = df_copy.groupby('GRUP')['ENGAGEMENT RATE'].mean().sort_values(ascending=False).to_dict()
-    daily_counts = {}
+    source_distribution = df_copy['SUMBER'].value_counts().nlargest(5).to_dict() if 'SUMBER' in df_copy.columns else {}
+    location_distribution = df_copy['LOKASI'].value_counts().nlargest(5).to_dict() if 'LOKASI' in df_copy.columns else {}
+
+    # --- 4. Daily Trends Analysis ---
+    daily_trends = {}
     if 'TANGGAL PUBLIKASI' in df_copy.columns:
         ts_data = df_copy.set_index('TANGGAL PUBLIKASI').resample('D').size()
         peak_day = ts_data.idxmax()
         peak_count = ts_data.max()
-        daily_counts = {
+        daily_trends = {
             "peak_day": peak_day.strftime('%Y-%m-%d'),
             "peak_count": int(peak_count),
-            "trend_data": {d.strftime('%Y-%m-%d'): v for d, v in ts_data.items()}
+            "total_days_with_posts": int(ts_data[ts_data > 0].count())
         }
-    top_viral_posts = []
-    if 'VIRALITY RATE' in df_copy.columns and not df_copy.empty:
-        top_5 = df_copy.sort_values(by='VIRALITY RATE', ascending=False).head(5)
-        top_viral_posts = top_5[['AKUN', 'KONTEN', 'VIRALITY RATE', 'ENGAGEMENTS']].to_dict('records')
-    performance_outliers = {}
-    if not df_copy.empty:
-        try:
-            top_er_post = df_copy.loc[df_copy['ENGAGEMENT RATE'].idxmax()]
-            most_followed_post = df_copy.loc[df_copy['FOLLOWERS'].idxmax()]
-            performance_outliers = {
-                "highest_engagement_rate_account": {
-                    "account": top_er_post.get('AKUN', 'N/A'),
-                    "rate": top_er_post.get('ENGAGEMENT RATE', 0)
-                },
-                "most_followers_account": {
-                    "account": most_followed_post.get('AKUN', 'N/A'),
-                    "followers": int(most_followed_post.get('FOLLOWERS', 0)),
-                    "engagement_rate_at_time": most_followed_post.get('ENGAGEMENT RATE', 0)
-                }
-            }
-        except (KeyError, ValueError):
-             performance_outliers = {"error": "Could not determine outliers."}
-    structured_context = {
-        "overall_summary": {"total_posts": total_posts, "total_views": int(total_views), "average_engagement_rate": avg_engagement_rate, "date_range": {"start": min_date, "end": max_date}},
-        "sentiment_distribution": sentiment_counts,
-        "engagement_analysis": {"by_topic": engagement_by_topic, "by_group": engagement_by_grup},
-        "daily_trends": daily_counts,
-        "top_viral_posts": top_viral_posts,
-        "account_performance": performance_outliers
+
+    # --- 5. Top Content Analysis (Expanded) ---
+    top_content = {
+        "by_virality": df_copy.sort_values(by='VIRALITY RATE', ascending=False).head(3)[['AKUN', 'KONTEN', 'VIRALITY RATE']].to_dict('records'),
+        "by_engagement": df_copy.sort_values(by='ENGAGEMENTS', ascending=False).head(3)[['AKUN', 'KONTEN', 'ENGAGEMENTS']].to_dict('records'),
+        "by_followers": df_copy.sort_values(by='FOLLOWERS', ascending=False).head(3)[['AKUN', 'KONTEN', 'FOLLOWERS']].to_dict('records')
     }
+
+    # --- 6. Account Performance Quadrant Analysis ---
+    quadrant_analysis = {"error": "Not enough data for quadrant analysis."}
+    required_cols_quadrant = ['AKUN', 'FOLLOWERS', 'ENGAGEMENT RATE']
+    if all(col in df_copy.columns for col in required_cols_quadrant):
+        account_perf = df_copy.groupby('AKUN').agg(
+            Avg_Followers=('FOLLOWERS', 'mean'),
+            Avg_ER=('ENGAGEMENT RATE', 'mean')
+        ).reset_index()
+
+        if len(account_perf) >= 4:
+            median_followers = account_perf['Avg_Followers'].median()
+            median_er = account_perf['Avg_ER'].mean() # Using mean for ER can be more stable than median if distribution is skewed
+
+            def categorize_account(row):
+                if row['Avg_Followers'] >= median_followers and row['Avg_ER'] >= median_er: return 'Champions'
+                elif row['Avg_Followers'] < median_followers and row['Avg_ER'] >= median_er: return 'Hidden Gems'
+                elif row['Avg_Followers'] < median_followers and row['Avg_ER'] < median_er: return 'Small'
+                else: return 'Megaphones'
+            
+            account_perf['Quadrant'] = account_perf.apply(categorize_account, axis=1)
+            quadrant_counts = account_perf['Quadrant'].value_counts().to_dict()
+            
+            # Find the top performer in each quadrant
+            top_in_quadrant = {
+                "champions": account_perf[account_perf['Quadrant'] == 'Champions'].nlargest(1, 'Avg_ER')['AKUN'].tolist(),
+                "hidden_gems": account_perf[account_perf['Quadrant'] == 'Hidden Gems'].nlargest(1, 'Avg_ER')['AKUN'].tolist(),
+                "megaphones": account_perf[account_perf['Quadrant'] == 'Megaphones'].nlargest(1, 'Avg_Followers')['AKUN'].tolist(),
+                "small": account_perf[account_perf['Quadrant'] == 'Small'].nlargest(1, 'Avg_Followers')['AKUN'].tolist(),
+            }
+            
+            quadrant_analysis = {
+                "quadrant_counts": {k: int(v) for k, v in quadrant_counts.items()},
+                "top_performers_in_quadrant": top_in_quadrant,
+                "median_followers": f"{median_followers:,.0f}",
+                "average_engagement_rate_threshold": f"{median_er:.2%}"
+            }
+
+    # --- 7. Final Assembly of the Context Dictionary ---
+    structured_context = {
+        "overall_summary": overall_summary,
+        "distributions": {
+            "by_sentiment": sentiment_counts,
+            "by_source": source_distribution,
+            "by_location": location_distribution
+        },
+        "daily_trends": daily_trends,
+        "top_content": top_content,
+        "account_performance": {
+            "quadrant_analysis": quadrant_analysis
+        }
+    }
+
     return structured_context
 
 # --- PERUBAHAN 5: Tambahkan 'client' sebagai argumen ---

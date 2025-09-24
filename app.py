@@ -109,6 +109,9 @@ with st.sidebar:
 col1, col2, col3 = st.columns([2, 2.5, 2])
 
 # --- COLUMN 1: CHAT INTERFACE ---
+# app.py
+
+# --- COLUMN 1: CHAT INTERFACE ---
 with col1:
     st.markdown(
         "<h3 style='display:flex; align-items:center; gap:8px; color:#2F5D9F;'>"
@@ -116,18 +119,18 @@ with col1:
         unsafe_allow_html=True
     )
     chat_container = st.container(height=550, border=True)
+    
+    # Menampilkan riwayat chat menggunakan komponen asli Streamlit
     for message in st.session_state.messages:
-        content_for_html = message["content"].replace("\n", "<br>")
+        # Tentukan avatar berdasarkan role
         if message["role"] == "user":
-            chat_container.markdown(
-                f'<div class="chat-bubble chat-human">{content_for_html}</div>',
-                unsafe_allow_html=True
-            )
+            avatar_img = "kur.png"  # Ganti dengan path logo Anda
         else:
-            chat_container.markdown(
-                f'<div class="chat-bubble chat-ai">{content_for_html}</div>',
-                unsafe_allow_html=True
-            )
+            avatar_img = "ai.png"   # Ganti dengan path logo AI
+        
+        # Tampilkan bubble chat dengan avatar
+        with chat_container.chat_message(message["role"], avatar=avatar_img):
+            st.markdown(message["content"])
 
 # --- COLUMN 2: VISUALIZATIONS ---
 with col2:
@@ -184,115 +187,72 @@ with col3:
         display_raw_data_bubbles(st.session_state.matched_data)
 
 # --- CHAT INPUT & SEQUENTIAL PROCESSING ---
-if prompt := st.chat_input("Ask about the data..."):
-    st.session_state.messages.append({"role": "user", "content": prompt})
+# app.py
 
-    response_stream = None
+# --- CHAT INPUT & SEQUENTIAL PROCESSING (VERSI FINAL & BERSIH) ---
+if prompt := st.chat_input("Ask about the data..."):
+    # 1. Tambahkan pesan pengguna ke state dan langsung tampilkan di UI
+    st.session_state.messages.append({"role": "user", "content": prompt})
+    with chat_container.chat_message("user", avatar="kur.png"):
+        st.markdown(prompt)
+
+    # 2. Mulai proses di belakang layar untuk mendapatkan respons AI
     with st.spinner("Analyzing prompt and generating response..."):
+        # Logika klasifikasi prompt Anda yang sudah benar (TIDAK DIUBAH)
         user_messages = [msg["content"] for msg in st.session_state.messages if msg["role"] == "user"]
         previous_prompt = user_messages[-2] if len(user_messages) > 1 else ""
-
         last_ai_response = ""
         if len(st.session_state.messages) > 1:
             for message in reversed(st.session_state.messages[:-1]):
                 if message["role"] == "assistant":
                     last_ai_response = message["content"]
                     break
-
+        
         analysis = classify_prompt_and_extract_entities(
             st.session_state.fireworks_client, prompt, previous_prompt, last_ai_response
         )
-
         prompt_type = analysis.get("type")
         dates = analysis.get("dates", [])
         
-        # --- PERUBAHAN 2: Logika "Safety Net" untuk Anti-Loop ---
-        # Jika AI sedang menunggu tanggal DAN pengguna memberikan input yang aneh lagi (terdeteksi sebagai New Topic tanpa tanggal)
+        # Logika "Safety Net" Anda (TIDAK DIUBAH)
         if st.session_state.waiting_for_date and prompt_type == "New Topic" and not dates:
-            # Paksa ubah menjadi Chatter untuk mendapatkan respons dinamis, bukan hardcoded.
             prompt_type = "Chatter"
 
+        # 3. Siapkan generator respons berdasarkan tipe prompt dalam satu blok logika yang bersih
+        response_generator = None
         if prompt_type == "New Topic":
             if not dates:
-                # Ini adalah pertama kalinya AI meminta tanggal
-                st.session_state.search_performed = False
-                st.session_state.matched_data = pd.DataFrame()
-                st.session_state.last_search = {"strict_groups": analysis.get("strict_groups", []), "fallback_keywords": analysis.get("fallback_keywords", [])}
-                
-                # --- PERUBAHAN 3: Aktifkan "ingatan" bahwa kita sedang menunggu tanggal ---
                 st.session_state.waiting_for_date = True
-                
+                st.session_state.search_performed = False # Pastikan search flag mati
                 def missing_date_response():
-                    response_text = "Tentu, saya bisa carikan datanya. Mohon informasikan tanggal atau rentang tanggal spesifik yang Anda inginkan."
-                    for word in response_text.split():
-                        import time
-                        yield word + " "
-                        time.sleep(0.05)
-                response_stream = missing_date_response()
+                    yield "Tentu, saya bisa carikan datanya. Mohon informasikan tanggal atau rentang tanggal spesifik yang Anda inginkan."
+                response_generator = missing_date_response()
             else:
-                # Pengguna memberikan tanggal, jalankan pencarian
-                st.session_state.waiting_for_date = False # Matikan "ingatan"
-                strict_groups = analysis.get("strict_groups", [])
-                fallback_keywords = analysis.get("fallback_keywords", [])
-                st.session_state.last_search = {"strict_groups": strict_groups, "fallback_keywords": fallback_keywords}
-                st.session_state.matched_data = search_data(df, strict_groups, fallback_keywords, dates)
+                st.session_state.waiting_for_date = False
+                st.session_state.last_search = {"strict_groups": analysis.get("strict_groups", []), "fallback_keywords": analysis.get("fallback_keywords", [])}
+                st.session_state.matched_data = search_data(df, st.session_state.last_search["strict_groups"], st.session_state.last_search["fallback_keywords"], dates)
                 st.session_state.search_performed = True
-                response_stream = get_ai_response(st.session_state.fireworks_client, prompt, st.session_state.matched_data, st.session_state.last_search)
+                response_generator = get_ai_response(st.session_state.fireworks_client, prompt, st.session_state.matched_data, st.session_state.last_search)
         
         elif prompt_type == "Follow-Up":
-            st.session_state.waiting_for_date = False # Matikan "ingatan"
-            last_search_params = st.session_state.last_search
+            st.session_state.waiting_for_date = False
             if dates:
-                st.session_state.matched_data = search_data(df, last_search_params["strict_groups"], last_search_params["fallback_keywords"], dates)
+                st.session_state.matched_data = search_data(df, st.session_state.last_search["strict_groups"], st.session_state.last_search["fallback_keywords"], dates)
             st.session_state.search_performed = True
-            response_stream = get_ai_response(st.session_state.fireworks_client, prompt, st.session_state.matched_data, st.session_state.last_search)
+            response_generator = get_ai_response(st.session_state.fireworks_client, prompt, st.session_state.matched_data, st.session_state.last_search)
 
         elif prompt_type == "Chatter":
-            st.session_state.waiting_for_date = False # Matikan "ingatan"
-            response_stream = get_contextual_chatter_response(
-                st.session_state.fireworks_client, st.session_state.messages
-            )
-
-            st.session_state.search_performed = True
+            st.session_state.waiting_for_date = False
+            st.session_state.search_performed = False # Pastikan search flag mati
+            response_generator = get_contextual_chatter_response(st.session_state.fireworks_client, st.session_state.messages)
+    
+    # 4. Stream respons AI ke UI dengan cara yang aman dan benar
+    if response_generator:
+        with chat_container.chat_message("assistant", avatar="ai.png"):
+            full_response = st.write_stream(response_generator)
         
-            # --- PERUBAHAN 5: Teruskan 'fireworks_client' ke fungsi get_ai_response ---
-            response_stream = get_ai_response(
-                st.session_state.fireworks_client, prompt, st.session_state.matched_data, st.session_state.last_search
-            )
-        
-
-        # --- PERUBAHAN LOGIKA UNTUK CHATTER ---
-        if prompt_type == "Chatter":
-            
-            response_stream = get_contextual_chatter_response(
-                st.session_state.fireworks_client, st.session_state.messages
-            )
-
-    if response_stream:
-        # The rest of the file remains exactly the same
-        chat_container.markdown(
-            f'<div class="chat-bubble chat-human">{prompt.replace(chr(10), "<br>")}</div>',
-            unsafe_allow_html=True
-        )
-        
-        placeholder = chat_container.empty()
-        full_response = ""
-        for chunk in response_stream:
-            full_response += chunk
-            response_for_html = full_response.replace("\n", "<br>")
-            placeholder.markdown(
-                f'<div class="chat-bubble chat-ai">{response_for_html}</div>',
-                unsafe_allow_html=True
-            )
-
         st.session_state.messages.append({"role": "assistant", "content": full_response})
-
-        if prompt_type == "New Topic" and not st.session_state.matched_data.empty:
-            current_session_state = {
-                "messages": st.session_state.get("messages", []).copy(),
-                "matched_data": st.session_state.get("matched_data", pd.DataFrame()).copy(),
-                "last_search": st.session_state.get("last_search", {}).copy()
-            }
-            history_service.save_chat_session(current_session_state)
-
-        st.rerun()
+        
+        # 5. Rerun HANYA jika ada pencarian data yang berhasil, agar visualisasi di-update
+        if st.session_state.search_performed:
+             st.rerun()
