@@ -2,3 +2,5 @@ venv
 __pyacache__
 .streamlit
 data_full.xlsx
+./chat_history
+./

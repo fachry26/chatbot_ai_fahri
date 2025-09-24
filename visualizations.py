@@ -9,6 +9,7 @@ import plotly.graph_objects as go
 COLOR_PALETTE = ['#1f77b4', '#ff7f0e', '#2ca02c', '#d62728', '#9467bd', '#8c564b', '#e377c2', '#7f7f7f', '#bcbd22', '#17becf']
 
 # 2. Fungsi helper untuk menerapkan gaya konsisten ke semua grafik
+# 2. Fungsi helper untuk menerapkan gaya konsisten ke semua grafik
 def apply_chart_style(fig, title):
     """Menerapkan layout, font, dan warna yang konsisten pada grafik Plotly."""
     fig.update_layout(
@@ -42,34 +43,44 @@ def apply_chart_style(fig, title):
     fig.update_yaxes(showline=True, linewidth=1, linecolor='#D6DBDF', gridcolor='#F2F3F4')
     return fig
 
-# --- KONTEN KONTEKS BARU (TIDAK ADA PERUBAHAN) ---
-# In visualizations.py
-
 def display_data_context(df, search_query):
-    """Displays the context of the current search, including topics and date range."""
+    """
+    Menampilkan konteks data yang ditampilkan, seperti topik dan rentang tanggal.
+    """
     if df.empty:
         return
 
+    # --- PENJAGA KEAMANAN DITAMBAHKAN DI SINI ---
+    # Memastikan kolom tanggal dalam format datetime sebelum melanjutkan.
+    df['TANGGAL PUBLIKASI'] = pd.to_datetime(df['TANGGAL PUBLIKASI'], errors='coerce')
+    df.dropna(subset=['TANGGAL PUBLIKASI'], inplace=True)
+
+    # Jika setelah dibersihkan dataframe menjadi kosong, hentikan.
+    if df.empty:
+        return
+    # --- AKHIR DARI KODE PENGAMAN ---
+
+    # Logika asli sekarang dapat berjalan dengan aman
+    min_date = df['TANGGAL PUBLIKASI'].min().strftime('%d %b %Y')
+    max_date = df['TANGGAL PUBLIKASI'].max().strftime('%d %b %Y')
+
+    date_range_str = f"🗓️ **Rentang Tanggal:** {min_date}"
+    if min_date != max_date:
+        date_range_str += f" - {max_date}"
+
+    # Ekstrak kata kunci untuk ditampilkan
     strict_keywords = {kw for group in search_query.get('strict_groups', []) for kw in group}
     fallback_keywords = set(search_query.get('fallback_keywords', []))
     all_keywords = sorted(list(strict_keywords | fallback_keywords))
+
+    if all_keywords:
+        topic_str = f"🔍 **Topik:** `{', '.join(all_keywords)}`"
+    else:
+        topic_str = "🔍 **Topik:** `Semua Topik`"
+
+    st.markdown(f"{topic_str} &nbsp;&nbsp; | &nbsp;&nbsp; {date_range_str}")
+    st.markdown("---")
     
-    min_date = df['TANGGAL PUBLIKASI'].min().strftime('%d %b %Y')
-    max_date = df['TANGGAL PUBLIKASI'].max().strftime('%d %b %Y')
-    date_display = min_date if min_date == max_date else f"{min_date} to {max_date}"
-
-    with st.container(border=True):
-        col1, col2 = st.columns(2)
-        with col1:
-            st.markdown(f"**🗓️ Data Range:**")
-            # --- V CORRECTED LINE V ---
-            st.markdown(f"<span style='font-size: 1.2em;'>{date_display}</span>", unsafe_allow_html=True)
-        with col2:
-            st.markdown(f"**🔍 Data About:**")
-            # --- V CORRECTED LINE V ---
-            st.markdown(f"<span style='font-size: 1.2em;'>{', '.join(all_keywords)}</span>", unsafe_allow_html=True)
-    st.write("")
-
 # --- VISUALISASI YANG TELAH DIPERBARUI ---
 
 def display_top_viral_posts(df):
@@ -101,58 +112,205 @@ def display_top_viral_posts(df):
                 # --- ^ CITATION ADDED HERE ^ ---
                 st.metric("Engagements", f"{row.get('ENGAGEMENTS', 0):,}")
 
+# In visualizations.py
+
 def display_summary_metrics(df):
-    """Menampilkan KPI cards dengan statistik ringkasan."""
+    """Menampilkan KPI cards dengan statistik ringkasan dan sentimen."""
     if df.empty:
         st.info("No data to display metrics.")
         return
 
     st.subheader("📊 Headline Stats")
-    col1, col2, col3 = st.columns(3)
-
-    total_posts = len(df)
     
+    # --- Row 1: Core Metrics ---
+    col1, col2, col3 = st.columns(3)
+    total_posts = len(df)
     total_engagements = df['ENGAGEMENTS'].sum() if 'ENGAGEMENTS' in df.columns else 0
     total_views = df['VIEWS'].sum() if 'VIEWS' in df.columns else 0
     avg_engagement_rate = (total_engagements / total_views * 100) if total_views > 0 else 0
     
     col1.metric("Total Posts", f"{total_posts:,}")
-    # --- V CITATION ADDED HERE V ---
     col2.metric("Avg. Engagement Rate", f"{avg_engagement_rate:.2f}%", help="Calculated as (Total Engagements / Total Views) * 100")
-    # --- ^ CITATION ADDED HERE ^ ---
     col3.metric("Total Views", f"{total_views:,}")
+    
+    st.markdown("---") # Visual separator
 
-# In visualizations.py, replace the old function with this one
+    # --- Row 2: Sentiment Metrics ---
+    if 'SENTIMEN' in df.columns:
+        sentiment_counts = df['SENTIMEN'].str.strip().value_counts()
+        
+        # FIXED: Changed keys from English to Indonesian to match the data
+        positive_count = sentiment_counts.get('Positif', 0)
+        neutral_count = sentiment_counts.get('Netral', 0)
+        negative_count = sentiment_counts.get('Negatif', 0)
 
-# In visualizations.py, replace the old function with this new one.
+        # Helper function for colored metric display
+        def colored_metric(title, value, color):
+            return f"""
+            <div style="
+                background-color: #F8F9FA;
+                padding: 10px;
+                border-radius: 8px;
+                border-left: 5px solid {color};
+                text-align: center;
+            ">
+                <div style="font-size: 1em; color: #5D6D7E;">{title}</div>
+                <div style="font-size: 1.5em; color: {color}; font-weight: bold;">{value:,}</div>
+            </div>
+            """
+
+        scol1, scol2, scol3 = st.columns(3)
+        with scol1:
+            st.markdown(colored_metric("Positif Posts", positive_count, "#2ca02c"), unsafe_allow_html=True)
+        with scol2:
+            st.markdown(colored_metric("Netral Posts", neutral_count, "#1f77b4"), unsafe_allow_html=True)
+        with scol3:
+            st.markdown(colored_metric("Negatif Posts", negative_count, "#d62728"), unsafe_allow_html=True)
 
 def plot_sentiment_distribution(df):
-    """Donut chart untuk distribusi sentimen."""
+    """Menampilkan donut chart dan trend chart untuk distribusi sentimen."""
     if df.empty or 'SENTIMEN' not in df.columns:
         st.info("No sentiment data available.")
         return
     
-    # --- V FINAL, MORE ROBUST FIX V ---
-    # 1. Get value counts and explicitly name the new 'count' column upon creation.
-    #    This results in a DataFrame with columns: ['index', 'count']
     sentiment_counts = df['SENTIMEN'].value_counts().reset_index(name='count')
-    
-    # 2. Now, safely rename the 'index' column to 'SENTIMEN'.
-    #    This results in a DataFrame with columns: ['SENTIMEN', 'count']
     sentiment_counts = sentiment_counts.rename(columns={'index': 'SENTIMEN'})
-    # --- ^ FINAL, MORE ROBUST FIX ^ ---
-
-    fig = px.pie(sentiment_counts, names='SENTIMEN', values='count', 
-                 hole=0.4, color_discrete_sequence=COLOR_PALETTE)
     
-    fig.update_traces(
+    # FIXED: Changed color map keys to Indonesian
+    color_map = {'Positif': '#2ca02c', 'Netral': '#1f77b4', 'Negatif': '#d62728'}
+
+    # --- Chart 1: Donut Chart ---
+    fig_pie = px.pie(sentiment_counts, names='SENTIMEN', values='count', 
+                     hole=0.4, color='SENTIMEN', color_discrete_map=color_map)
+    fig_pie.update_traces(
         textposition='inside', 
         textinfo='percent+label', 
-        hovertemplate="<b>%{label}</b><br>Total Posts: %{value}<br>Persentase: %{percent}<extra></extra>"
+        hovertemplate="<b>%{label}</b><br>Total Posts: %{value}<br>Percentage: %{percent}<extra></extra>"
+    )
+    fig_pie = apply_chart_style(fig_pie, "Public Sentiment Distribution")
+    st.plotly_chart(fig_pie, use_container_width=True)
+
+    st.markdown("---")
+
+    # --- Chart 2: Sentiment Trend Chart ---
+    if 'TANGGAL PUBLIKASI' in df.columns:
+        trend_df = df.groupby([pd.Grouper(key='TANGGAL PUBLIKASI', freq='D'), 'SENTIMEN']) \
+                     .size().reset_index(name='count')
+        
+        fig_trend = px.area(trend_df, x='TANGGAL PUBLIKASI', y='count', color='SENTIMEN',
+                           color_discrete_map=color_map,
+                           labels={'TANGGAL PUBLIKASI': 'Date', 'count': 'Number of Posts'},
+                           markers=True)
+        
+        fig_trend = apply_chart_style(fig_trend, 'Sentiment Trend Over Time')
+        st.plotly_chart(fig_trend, use_container_width=True)
+
+def plot_followers_vs_engagement(df):
+    """Scatter plot dengan gaya dan tooltip yang lebih informatif."""
+    required_cols = ['FOLLOWERS', 'ENGAGEMENTS', 'VIEWS', 'SENTIMEN', 'AKUN']
+    if df.empty or not all(col in df.columns for col in required_cols):
+        st.info("Not enough data for scatter plot.")
+        return
+
+    df_copy = df.copy()
+    df_copy['ENGAGEMENT RATE'] = df_copy.apply(
+        lambda row: row['ENGAGEMENTS'] / row['VIEWS'] if row['VIEWS'] > 0 else 0,
+        axis=1
     )
     
-    fig = apply_chart_style(fig, "Distribusi Sentimen Publik")
+    fig = px.scatter(df_copy, x='FOLLOWERS', y='ENGAGEMENT RATE',
+                     size='ENGAGEMENTS', color='SENTIMEN', 
+                     hover_name='AKUN',
+                     log_x=True,
+                     # FIXED: Changed color map keys to Indonesian
+                     color_discrete_map={
+                         'Positif': COLOR_PALETTE[2],
+                         'Negatif': COLOR_PALETTE[3],
+                         'Netral': COLOR_PALETTE[7]
+                     },
+                     hover_data={
+                         'FOLLOWERS': ':,',
+                         'ENGAGEMENT RATE': ':.2%',
+                         'ENGAGEMENTS': ':,'
+                     })
+    
+    fig.update_traces(marker=dict(line=dict(width=1, color='DarkSlateGrey')), selector=dict(mode='markers'))
+    
+    fig = apply_chart_style(fig, 'Followers vs. Engagement Rate')
+    fig.update_layout(hovermode='closest')
     st.plotly_chart(fig, use_container_width=True)
+    st.caption("ⓘ Engagement Rate is calculated as Engagements / Views.")
+
+# NEW: Add this entire function to visualizations.py
+def display_top_engagement_posts(df):
+    """Menampilkan 5 postingan dengan engagement tertinggi."""
+    required_cols = ['ENGAGEMENTS', 'AKUN', 'TOPIK', 'SENTIMEN', 'KONTEN']
+    if df.empty or not all(col in df.columns for col in required_cols):
+        return # Silently fail if not enough data
+
+    st.subheader("🚀 Top 5 Highest Engagement Posts")
+    top_posts = df.sort_values(by='ENGAGEMENTS', ascending=False).head(5)
+    
+    for _, row in top_posts.iterrows():
+        with st.container(border=True):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.markdown(f"**Post by: {row.get('AKUN', 'N/A')}**")
+                st.caption(f"Topic: {row.get('TOPIK', 'N/A')} | Sentiment: {row.get('SENTIMEN', 'N/A')}")
+                st.markdown(f"_{row.get('KONTEN', 'N/A')[:150]}..._")
+            with col2:
+                st.metric("Engagements", f"{row.get('ENGAGEMENTS', 0):,}")
+                st.metric("Followers", f"{row.get('FOLLOWERS', 0):,}")
+
+def display_top_viral_posts(df):
+    """Menampilkan 5 postingan paling viral dengan tata letak kartu yang lebih baik."""
+    required_cols = ['ENGAGEMENTS', 'FOLLOWERS', 'AKUN', 'TOPIK', 'SENTIMEN', 'KONTEN']
+    if df.empty or not all(col in df.columns for col in required_cols):
+        st.info("No virality data to display.")
+        return
+
+    df_copy = df.copy()
+    df_copy['VIRALITY RATE'] = df_copy.apply(
+        lambda row: row['ENGAGEMENTS'] / row['FOLLOWERS'] if row['FOLLOWERS'] > 0 else 0,
+        axis=1
+    )
+
+    st.subheader("🏆 Top 5 Viral Posts")
+    top_posts = df_copy.sort_values(by='VIRALITY RATE', ascending=False).head(5)
+    
+    for _, row in top_posts.iterrows():
+        with st.container(border=True):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.markdown(f"**Post by: {row.get('AKUN', 'N/A')}**")
+                st.caption(f"Topic: {row.get('TOPIK', 'N/A')} | Sentiment: {row.get('SENTIMEN', 'N/A')}")
+                st.markdown(f"_{row.get('KONTEN', 'N/A')[:150]}..._")
+            with col2:
+                st.metric("Virality", f"{row['VIRALITY RATE']:.2%}", help="Calculated as (Engagements / Followers)")
+                st.metric("Engagements", f"{row.get('ENGAGEMENTS', 0):,}")
+
+
+def display_top_followers_posts(df):
+    """Menampilkan 5 postingan dari akun dengan followers terbanyak."""
+    required_cols = ['FOLLOWERS', 'AKUN', 'TOPIK', 'SENTIMEN', 'KONTEN']
+    if df.empty or not all(col in df.columns for col in required_cols):
+        return # Silently fail if not enough data, as it's a secondary chart
+
+    st.subheader("🔝 Top 5 Posts by Followers")
+    top_posts = df.sort_values(by='FOLLOWERS', ascending=False).head(5)
+    
+    for _, row in top_posts.iterrows():
+        with st.container(border=True):
+            col1, col2 = st.columns([4, 1])
+            with col1:
+                st.markdown(f"**Post by: {row.get('AKUN', 'N/A')}**")
+                st.caption(f"Topic: {row.get('TOPIK', 'N/A')} | Sentiment: {row.get('SENTIMEN', 'N/A')}")
+                st.markdown(f"_{row.get('KONTEN', 'N/A')[:150]}..._")
+            with col2:
+                st.metric("Followers", f"{row.get('FOLLOWERS', 0):,}")
+                st.metric("Engagements", f"{row.get('ENGAGEMENTS', 0):,}")
+
+
 
 def plot_engagement_by_category(df, category='TOPIK'):
     """Bar chart untuk engagement dengan label data dan format persentase."""
@@ -211,45 +369,6 @@ def plot_time_series(df):
     fig = apply_chart_style(fig, 'Tren Jumlah Post Harian')
     st.plotly_chart(fig, use_container_width=True)
 
-def plot_followers_vs_engagement(df):
-    """Scatter plot dengan gaya dan tooltip yang lebih informatif."""
-    required_cols = ['FOLLOWERS', 'ENGAGEMENTS', 'VIEWS', 'SENTIMEN', 'AKUN']
-    if df.empty or not all(col in df.columns for col in required_cols):
-        st.info("Not enough data for scatter plot.")
-        return
-
-    df_copy = df.copy()
-    df_copy['ENGAGEMENT RATE'] = df_copy.apply(
-        lambda row: row['ENGAGEMENTS'] / row['VIEWS'] if row['VIEWS'] > 0 else 0,
-        axis=1
-    )
-    
-    fig = px.scatter(df_copy, x='FOLLOWERS', y='ENGAGEMENT RATE',
-                     size='ENGAGEMENTS', color='SENTIMEN', 
-                     hover_name='AKUN',
-                     log_x=True,
-                     color_discrete_map={
-                         'Positive': COLOR_PALETTE[2],
-                         'Negative': COLOR_PALETTE[3],
-                         'Neutral': COLOR_PALETTE[7]
-                     },
-                     hover_data={
-                         'FOLLOWERS': ':,',
-                         'ENGAGEMENT RATE': ':.2%',
-                         'ENGAGEMENTS': ':,'
-                     })
-    
-    fig.update_traces(marker=dict(line=dict(width=1, color='DarkSlateGrey')), selector=dict(mode='markers'))
-    
-    fig = apply_chart_style(fig, 'Followers vs. Engagement Rate')
-    fig.update_layout(hovermode='closest')
-    st.plotly_chart(fig, use_container_width=True)
-    # --- V CITATION ADDED HERE V ---
-    st.caption("ⓘ Engagement Rate is calculated as Engagements / Views.")
-    # --- ^ CITATION ADDED HERE ^ ---
-
-# --- NEW VISUALIZATION FUNCTIONS ---
-# In visualizations.py, replace the old top performers functions with this one.
 
 def display_top_performers(df):
     """Displays a tab with multiple top performer tables for key metrics."""
@@ -311,20 +430,17 @@ def display_top_performers(df):
                 )
                 st.write("") # Add vertical spac
 
-# In visualizations.py, add this new function to the end of the file.
-
-# In visualizations.py, replace the old plot_geospatial_analysis function with this new one.
 
 def plot_geospatial_analysis(df):
-    """Displays a more robust analysis for location and source data, including tables."""
-    st.subheader("🗺️ Geospatial & Source Analysis")
+    """Displays a sequential analysis for location data."""
+    st.subheader("🗺️ Geospatial Analysis")
 
-    # --- 1. Locational Analysis ---
+    # --- Locational Analysis ---
     if 'LOKASI' in df.columns and not df['LOKASI'].dropna().empty:
         location_counts = df['LOKASI'].value_counts().reset_index()
         location_counts.columns = ['LOKASI', 'Posts']
         
-        # A dictionary to map major Indonesian provinces to coordinates for the bubble map
+        # A dictionary to map major Indonesian provinces to coordinates
         indonesia_coords = {
             'DKI Jakarta': {'lat': -6.2088, 'lon': 106.8456}, 'Jawa Barat': {'lat': -6.9175, 'lon': 107.6191},
             'Jawa Tengah': {'lat': -7.1509, 'lon': 110.1403}, 'Jawa Timur': {'lat': -7.5361, 'lon': 112.2384},
@@ -343,7 +459,6 @@ def plot_geospatial_analysis(df):
         }
         
         # --- Robust Matching Logic ---
-        # Create a normalized lookup dictionary (lowercase, no spaces)
         coords_lookup = {k.lower().replace(" ", ""): v for k, v in indonesia_coords.items()}
         
         def get_coords(location_name):
@@ -351,66 +466,41 @@ def plot_geospatial_analysis(df):
             normalized_name = location_name.lower().replace(" ", "")
             return coords_lookup.get(normalized_name)
 
-        # Apply the matching to get coordinates
         location_counts['coords'] = location_counts['LOKASI'].apply(get_coords)
-        
-        # Split into mapped and unmapped data for debugging and plotting
         mapped_df = location_counts.dropna(subset=['coords']).copy()
-        unmapped_df = location_counts[location_counts['coords'].isna()]
         
         if not mapped_df.empty:
             mapped_df['lat'] = mapped_df['coords'].apply(lambda x: x['lat'])
             mapped_df['lon'] = mapped_df['coords'].apply(lambda x: x['lon'])
 
-        # --- Display Table and Map side-by-side ---
-        col1, col2 = st.columns([1, 2])
-
-        with col1:
-            st.markdown("**Top 10 Locations by Post Count**")
-            top_10_table = location_counts[['LOKASI', 'Posts']].head(10)
-            top_10_table.index = top_10_table.index + 1
-            st.dataframe(top_10_table, use_container_width=True)
-
-        with col2:
-            if not mapped_df.empty:
-                fig_map = px.scatter_geo(mapped_df, lat='lat', lon='lon', size='Posts',
-                                         hover_name='LOKASI', projection="natural earth",
-                                         scope='asia', center={'lat': -2.5, 'lon': 118},
-                                         color='Posts', color_continuous_scale=px.colors.sequential.Plasma,
-                                         hover_data={'Posts': ':,d', 'lat': False, 'lon': False})
-                fig_map = apply_chart_style(fig_map, "Geographic Distribution of Posts")
-                fig_map.update_layout(height=400)
-                st.plotly_chart(fig_map, use_container_width=True)
-            else:
-                st.info("Could not map any locations from your data. Check names in the 'LOKASI' column.")
+            # --- Display Map ---
+            # MODIFIED: Removed scope='asia' to allow for manual zoom
+            fig_map = px.scatter_geo(mapped_df, lat='lat', lon='lon', size='Posts',
+                                     hover_name='LOKASI', projection="natural earth",
+                                     center={'lat': -2.5, 'lon': 118},
+                                     color='Posts', color_continuous_scale=px.colors.sequential.Plasma,
+                                     hover_data={'Posts': ':,d', 'lat': False, 'lon': False})
+            
+            fig_map = apply_chart_style(fig_map, "Geographic Distribution of Posts")
+            
+            # NEW: Controls the zoom level. Higher number = more zoom.
+            fig_map.update_geos(projection_scale=5)
+            
+            # MODIFIED: Increased the map height
+            fig_map.update_layout(height=550)
+            
+            st.plotly_chart(fig_map, use_container_width=True)
+        else:
+            st.info("Could not map any locations from your data. Check names in the 'LOKASI' column.")
         
-        # --- Optional Debugger ---
-        with st.expander("View Data Mapping Info"):
-            st.write("This section helps you see which locations were successfully found for the map.")
-            st.markdown(f"**✅ Mapped Locations:** `{', '.join(mapped_df['LOKASI'].tolist())}`")
-            if not unmapped_df.empty:
-                st.markdown(f"**❌ Unmapped Locations:** `{', '.join(unmapped_df['LOKASI'].tolist())}`")
+        # --- Display Table ---
+        st.markdown("**Top 10 Locations by Post Count**")
+        top_10_table = location_counts[['LOKASI', 'Posts']].head(10)
+        top_10_table.index = top_10_table.index + 1
+        st.dataframe(top_10_table, use_container_width=True)
 
     else:
         st.info("No location data (LOKASI) available to display analysis.")
-
-    st.markdown("---")
-
-    # --- 2. Source Treemap (Unchanged) ---
-    if 'SUMBER' in df.columns and not df['SUMBER'].dropna().empty:
-        source_counts = df['SUMBER'].value_counts().reset_index()
-        source_counts.columns = ['SUMBER', 'count']
-        
-        fig_treemap = px.treemap(source_counts, path=[px.Constant("All Sources"), 'SUMBER'], values='count',
-                                 color='count', color_continuous_scale='Blues',
-                                 hover_data={'count': ':,d'})
-        fig_treemap.update_traces(textinfo="label+value", hovertemplate='<b>%{label}</b><br>Post Count: %{value}<extra></extra>')
-        fig_treemap = apply_chart_style(fig_treemap, "Distribution by Media Source")
-        fig_treemap.update_layout(height=400)
-        st.plotly_chart(fig_treemap, use_container_width=True)
-    else:
-        st.info("No source data (SUMBER) available to display treemap.")
-
 # In visualizations.py, add this new function to the end of the file.
 
 def plot_performance_quadrant(df):
@@ -461,8 +551,8 @@ def plot_performance_quadrant(df):
     fig.add_hline(y=median_er, line_dash="dash", line_color="grey")
     fig.add_annotation(x=median_followers*1.1, y=median_er*1.1, text="<b>🏆 Champions</b><br>(High Followers, High ER)", showarrow=False, bgcolor="#d1fecb", borderpad=4)
     fig.add_annotation(x=median_followers*0.9, y=median_er*1.1, text="<b>💎 Hidden Gems</b><br>(Low Followers, High ER)", showarrow=False, xanchor='right', bgcolor="#ccf2ff", borderpad=4)
-    fig.add_annotation(x=median_followers*0.9, y=median_er*0.9, text="<b>🌱 Niche Players</b><br>(Low Followers, Low ER)", showarrow=False, xanchor='right', yanchor='top', bgcolor="#fff5c0", borderpad=4)
-    fig.add_annotation(x=median_followers*1.1, y=median_er*0.9, text="<b>📢 Megaphones</b><br>(High Followers, Low ER)", showarrow=False, yanchor='top', bgcolor="#ffddc7", borderpad=4)
+    fig.add_annotation(x=median_followers*0.9, y=median_er*0.9, text="<b>🌱 Small</b><br>(Low Followers, Low ER)", showarrow=False, xanchor='right', yanchor='top', bgcolor="#fff5c0", borderpad=4)
+    fig.add_annotation(x=median_followers*1.1, y=median_er*0.9, text="<b>📢 Megaphones but Low ER</b><br>(High Followers, Low ER)", showarrow=False, yanchor='top', bgcolor="#ffddc7", borderpad=4)
 
     fig = apply_chart_style(fig, "Account Performance Quadrants")
     fig.update_layout(height=500)
@@ -475,9 +565,9 @@ def plot_performance_quadrant(df):
         elif row['Avg_Followers'] < median_followers and row['Avg_ER'] >= median_er:
             return 'Hidden Gems'
         elif row['Avg_Followers'] < median_followers and row['Avg_ER'] < median_er:
-            return 'Niche Players'
+            return 'Small'
         else:
-            return 'Megaphones'
+            return 'Megaphones but Low ER'
 
     account_performance['Quadrant'] = account_performance.apply(categorize_account, axis=1)
 
@@ -518,3 +608,33 @@ def plot_performance_quadrant(df):
             .style.format({'Avg_Followers': '{:,.0f}'}), 
             use_container_width=True
         )
+
+def plot_source_distribution(df):
+    """Displays a horizontal bar chart for the distribution of media sources."""
+    if 'SUMBER' in df.columns and not df['SUMBER'].dropna().empty:
+        st.markdown("---") # Separator from the chart above it
+        
+        # Get the top 15 sources to keep the chart clean
+        source_counts = df['SUMBER'].value_counts().nlargest(15).reset_index()
+        source_counts.columns = ['SUMBER', 'count']
+        
+        # Sort ascending to have the largest bar at the top
+        source_counts.sort_values('count', ascending=True, inplace=True)
+        
+        fig = px.bar(
+            source_counts, 
+            x='count', 
+            y='SUMBER', 
+            orientation='h',
+            text='count',
+            color_discrete_sequence=[COLOR_PALETTE[0]]
+        )
+        
+        fig.update_traces(textposition='outside')
+        fig.update_layout(uniformtext_minsize=8, uniformtext_mode='hide')
+        fig.update_yaxes(title='')
+        fig.update_xaxes(title='Number of Posts')
+
+        fig = apply_chart_style(fig, "Distribution by Media Source")
+        
+        st.plotly_chart(fig, use_container_width=True)
