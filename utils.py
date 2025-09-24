@@ -2,18 +2,30 @@
 
 import streamlit as st
 import pandas as pd
-import openai
+# --- PERUBAHAN 1: Ganti import untuk kompatibilitas ---
+from openai import OpenAI 
 from dotenv import load_dotenv
 import os
 import json
 from datetime import datetime
 import time
 
-def configure_openai():
+# --- PERUBAHAN 2: Ganti fungsi konfigurasi ke Fireworks AI ---
+def configure_fireworks():
+    """Menginisialisasi dan mengembalikan client Fireworks AI."""
     load_dotenv()
-    openai.api_key = os.getenv("OPENAI_API_KEY")
-    if not openai.api_key:
-        st.error("OpenAI API key not found. Please create a .env file with your key.")
+    api_key = os.getenv("FIREWORKS_API_KEY")
+    if not api_key:
+        st.error("FIREWORKS_API_KEY not found. Please create a .env file with your key.")
+        st.stop()
+    try:
+        client = OpenAI(
+            base_url="https://api.fireworks.ai/inference/v1",
+            api_key=api_key
+        )
+        return client
+    except Exception as e:
+        st.error(f"Gagal mengkonfigurasi client Fireworks: {e}")
         st.stop()
 
 @st.cache_data
@@ -21,35 +33,35 @@ def load_data(file_path="data_full.xlsx"):
     """Memuat, membersihkan, dan menyiapkan dataset."""
     try:
         df = pd.read_excel(file_path)
-
-        # PASTIKAN KONVERSI TANGGAL ROBUST
-        # 'errors='coerce'' akan mengubah tanggal yang tidak valid menjadi NaT (Not a Time)
         df['TANGGAL PUBLIKASI'] = pd.to_datetime(df['TANGGAL PUBLIKASI'], errors='coerce')
-
-        # Hapus baris yang tanggalnya gagal dikonversi untuk menjaga integritas data
         df.dropna(subset=['TANGGAL PUBLIKASI'], inplace=True)
-
-        # Pastikan kolom numerik penting diperlakukan sebagai angka
         numeric_cols = ['FOLLOWERS', 'ENGAGEMENTS', 'REACTIONS', 'COMMENTS', 'SHARES', 'VIEWS']
         for col in numeric_cols:
             if col in df.columns:
                 df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-
         return df
     except FileNotFoundError:
         st.error(f"Error: File {file_path} tidak ditemukan.")
         return pd.DataFrame()
 
-
-def classify_prompt_and_extract_entities(current_prompt, previous_prompt=""):
+# --- PERUBAHAN 3: Tambahkan 'client' sebagai argumen ---
+def classify_prompt_and_extract_entities(client, current_prompt, previous_prompt="",latest_ai_response=""):
+    # PROMPT ENGINEERING ANDA TETAP SAMA SEPERTI ASLINYA
     system_prompt = """
     You are an expert prompt analyzer for a data dashboard. Your goal is to provide a structured and precise search plan.
     IMPORTANT CONTEXT: The current year is 2025.
 
+    **CONVERSATIONAL CONTEXT:**
+    - The AI's last message was: "{last_ai_response}"
+    - The user's previous message was: "{previous_prompt}"
+    - The user's current message is: "{current_prompt}"
+
     **RULES & TASKS:**
 
-    1.  **Classify Type**: Determine if the prompt is "New Topic" or "Follow-Up".
-
+    1.  **Classify Type**: Determine if the prompt is "New Topic", "Follow-Up" or "Chatter".
+        - "New Topic": User wants to search for new information.
+        - "Follow-Up": User asks a question related to the last successful search.
+        - "Chatter": User is having a general conversation, saying thanks, asking randomly, or providing a non-data-related response. This INCLUDES vague, non-specific, or single-word conversational fillers like "hmm", "banyak", "lanjut", "kenapa", or expressions of hesitation.
     2.  **Extract Dates**: Convert all mentioned dates to `YYYY-MM-DD` format.
 
     3.  **Handle Date-Only Follow-Ups**: If the current prompt is clearly just a request for a different date based on the previous topic (e.g., "bagaimana dengan 23 agustus?", "23 agustus saja"), you MUST classify it as **"Follow-Up"**. The `strict_groups` and `fallback_keywords` must be empty `[]` as per the "Follow-Up" rule.
@@ -123,15 +135,37 @@ def classify_prompt_and_extract_entities(current_prompt, previous_prompt=""):
     **Example 9 (Initial Query/Follow-Up with Keyword-Only Non-People Topic):**
     Prompt: "Data ekonomi bulan Mei"
     Result: {"type":"New Topic","dates":["2025-05-01","2025-05-31"],"strict_groups":[["Ekonomi"],["Keuangan"]],"fallback_keywords":["Keuangan","Ekonomi"]}
+
+    **Example 10 (Chatter):**
+    Previous Prompt: "Mohon informasikan tanggal atau rentang tanggal spesifik yang Anda inginkan."
+    Current Prompt: "iya pasti gaada sih"
+    Result: {{"type":"Chatter","dates":[],"strict_groups":[],"fallback_keywords":[]}}
+
+    **Example 11 (Chatter - Thanks):**
+    Previous Prompt: "Berikut adalah analisis sentimen untuk data Prabowo."
+    Current Prompt: "makasihh"
+    Result: {{"type":"Chatter","dates":[],"strict_groups":[],"fallback_keywords":[]}}
+
+    **Example 12 (Vague/Filler Chatter):**
+    Previous Prompt: "Selamat pagi! Ada yang bisa saya bantu?"
+    Current Prompt: "banyak"
+    Result: {{"type":"Chatter","dates":[],"strict_groups":[],"fallback_keywords":[]}}
+
+    **Example 13 (Vague/Filler Chatter):**
+    Previous Prompt: "Mohon informasikan tanggal atau rentang tanggal spesifik yang Anda inginkan."
+    Current Prompt: "hmm"
+    Result: {{"type":"Chatter","dates":[],"strict_groups":[],"fallback_keywords":[]}}
+
     --- END OF EXAMPLES ---
     **REMEMBER**: Return ONLY the JSON object. No explanations or additional text.
     """
     try:
-        response = openai.chat.completions.create(
-            model="gpt-4o-mini",
+        # --- PERUBAHAN 4: Ganti pemanggilan API & model ---
+        response = client.chat.completions.create(
+            model="accounts/fireworks/models/gpt-oss-120b", # Model besar OSS
             messages=[
                 {"role": "system", "content": system_prompt},
-                {"role": "user", "content": f"Previous Prompt: \"{previous_prompt}\"\nCurrent Prompt: \"{current_prompt}\""}
+                {"role": "user", "content": f"Analyze the user's current prompt: \"{current_prompt}\""}
             ],
             temperature=0.0, response_format={"type": "json_object"}
         )
@@ -148,14 +182,12 @@ def classify_prompt_and_extract_entities(current_prompt, previous_prompt=""):
 
 
 def search_data(dataframe, strict_groups, fallback_keywords, dates):
+    # FUNGSI INI TIDAK BERUBAH
     if dataframe is None:
         return pd.DataFrame()
-
-    # --- STEP 1: APPLY DATE FILTER FIRST ---
     date_filtered_df = dataframe.copy()
     if dates:
         target_dates = sorted([pd.to_datetime(d).date() for d in dates])
-
         if len(target_dates) == 1:
             date_filtered_df = date_filtered_df[date_filtered_df['TANGGAL PUBLIKASI'].dt.date == target_dates[0]]
         elif len(target_dates) == 2:
@@ -166,16 +198,10 @@ def search_data(dataframe, strict_groups, fallback_keywords, dates):
             ]
         else:
             date_filtered_df = date_filtered_df[date_filtered_df['TANGGAL PUBLIKASI'].dt.date.isin(target_dates)]
-
     if date_filtered_df.empty:
         return pd.DataFrame()
-
-    # --- FIX: If no keywords are provided, return all data for the filtered date range ---
     if not strict_groups and not fallback_keywords:
         return date_filtered_df.sort_values(by='TANGGAL PUBLIKASI')
-
-    # --- STEP 2: NOW, PERFORM KEYWORD SEARCH ONLY ON THE DATE-FILTERED DATA ---
-    # TIER 1: Strict Search
     strict_results_df = pd.DataFrame()
     if strict_groups:
         all_matched_dfs = []
@@ -187,68 +213,93 @@ def search_data(dataframe, strict_groups, fallback_keywords, dates):
                 if temp_df.empty: break
             if not temp_df.empty:
                 all_matched_dfs.append(temp_df)
-
         if all_matched_dfs:
             strict_results_df = pd.concat(all_matched_dfs).drop_duplicates().reset_index(drop=True)
-
     final_df = strict_results_df
-
-    # TIER 2: Fallback Search (if Tier 1 found nothing)
     if final_df.empty and fallback_keywords:
         search_pattern = '|'.join(fallback_keywords)
         fallback_df = date_filtered_df[date_filtered_df['KONTEN'].str.contains(search_pattern, case=False, na=False)].copy()
         final_df = fallback_df
-
     if not final_df.empty:
         final_df = final_df.sort_values(by='TANGGAL PUBLIKASI')
-
     return final_df
 
-# --- NEW: Function to generate structured data for the AI ---
+# utils.py
+
+# ... (all other functions like configure_fireworks, load_data, etc., remain unchanged) ...
+
+def get_contextual_chatter_response(client, conversation_history):
+    """
+    Menghasilkan respons percakapan yang cerdas berdasarkan seluruh riwayat percakapan.
+    Fungsi ini sekarang berfungsi sebagai agen percakapan umum.
+    """
+    system_prompt = """
+    You are a helpful and expert AI assistant for a social media data dashboard. 
+    Your primary language is Indonesian.
+    Your goal is to answer the user's questions naturally and contextually based on the provided conversation history.
+
+    **YOUR CAPABILITIES IN THIS MODE:**
+    - You can answer general questions (e.g., "kamu siapa?", "apa yang bisa kamu lakukan?").
+    - You can clarify previous analyses or points you have made in the conversation.
+    - You can engage in polite, general conversation related to the dashboard's purpose.
+
+    **CRITICAL RULES:**
+    1.  **DO NOT** attempt to perform new data searches, analyze new data, or generate data summaries. Your role here is purely conversational.
+    2.  If the user clearly wants to search for **new data or a new topic**, you MUST guide them to ask a specific question that includes a topic and a date. For example: "Tentu, saya bisa bantu. Silakan ajukan pertanyaan spesifik seperti 'carikan data Prabowo tanggal 20 agustus'."
+    3.  Base your answers ONLY on the context from the conversation history. Do not invent data or analysis.
+    4.  Keep your responses concise and to the point.
+    """
+    
+    # Membangun pesan untuk API, memasukkan system prompt di awal
+    messages = [{"role": "system", "content": system_prompt}]
+    # Menambahkan seluruh riwayat percakapan
+    for message in conversation_history:
+        messages.append({"role": message["role"], "content": message["content"]})
+
+    try:
+        response_stream = client.chat.completions.create(
+            # Gunakan model yang cepat dan cerdas untuk percakapan
+            model="accounts/fireworks/models/gpt-oss-120b", 
+            messages=messages,
+            stream=True,
+            temperature=0.3 # Sedikit kreativitas untuk percakapan alami
+        )
+        for chunk in response_stream:
+            if chunk.choices[0].delta.content:
+                yield chunk.choices[0].delta.content
+    except Exception as e:
+        st.error(f"Error generating contextual chatter: {e}")
+        yield "Maaf, ada sedikit kendala. Bisa diulangi lagi pertanyaannya?"
+
+# ... (all other functions like generate_structured_context_from_data, get_ai_response, etc., remain unchanged) ...
+
 def generate_structured_context_from_data(df):
-    """
-    Generates a structured dictionary (JSON-like) containing the raw data
-    that powers each visualization on the dashboard.
-    """
+    # FUNGSI INI TIDAK BERUBAH
     if df.empty:
         return {"error": "No data available."}
-
-    # Create a safe copy for calculations
     df_copy = df.copy()
-
-    # --- Pre-calculate essential metrics ---
     if 'ENGAGEMENTS' in df_copy.columns and 'VIEWS' in df_copy.columns:
         df_copy['ENGAGEMENT RATE'] = df_copy.apply(
             lambda row: row['ENGAGEMENTS'] / row['VIEWS'] if row['VIEWS'] > 0 else 0, axis=1)
     else:
         df_copy['ENGAGEMENT RATE'] = 0
-
     if 'ENGAGEMENTS' in df_copy.columns and 'FOLLOWERS' in df_copy.columns:
         df_copy['VIRALITY RATE'] = df_copy.apply(
             lambda row: row['ENGAGEMENTS'] / row['FOLLOWERS'] if row['FOLLOWERS'] > 0 else 0, axis=1)
     else:
         df_copy['VIRALITY RATE'] = 0
-
-    # --- 1. Headline Stats ---
     total_posts = len(df_copy)
     total_views = df_copy['VIEWS'].sum() if 'VIEWS' in df_copy.columns else 0
     avg_engagement_rate = df_copy['ENGAGEMENT RATE'].mean()
     min_date = df_copy['TANGGAL PUBLIKASI'].min().strftime('%Y-%m-%d')
     max_date = df_copy['TANGGAL PUBLIKASI'].max().strftime('%Y-%m-%d')
-
-    # --- 2. Sentiment Distribution ---
     sentiment_counts = df_copy['SENTIMEN'].value_counts().to_dict() if 'SENTIMEN' in df_copy.columns else {}
-
-    # --- 3. Engagement by Category ---
     engagement_by_topic = {}
     if 'TOPIK' in df_copy.columns:
         engagement_by_topic = df_copy.groupby('TOPIK')['ENGAGEMENT RATE'].mean().sort_values(ascending=False).to_dict()
-
     engagement_by_grup = {}
     if 'GRUP' in df_copy.columns:
         engagement_by_grup = df_copy.groupby('GRUP')['ENGAGEMENT RATE'].mean().sort_values(ascending=False).to_dict()
-
-    # --- 4. Time Series Trends ---
     daily_counts = {}
     if 'TANGGAL PUBLIKASI' in df_copy.columns:
         ts_data = df_copy.set_index('TANGGAL PUBLIKASI').resample('D').size()
@@ -259,14 +310,10 @@ def generate_structured_context_from_data(df):
             "peak_count": int(peak_count),
             "trend_data": {d.strftime('%Y-%m-%d'): v for d, v in ts_data.items()}
         }
-
-    # --- 5. Top Viral Posts ---
     top_viral_posts = []
     if 'VIRALITY RATE' in df_copy.columns and not df_copy.empty:
         top_5 = df_copy.sort_values(by='VIRALITY RATE', ascending=False).head(5)
         top_viral_posts = top_5[['AKUN', 'KONTEN', 'VIRALITY RATE', 'ENGAGEMENTS']].to_dict('records')
-
-    # --- 6. Performance Outliers (Followers vs. Engagement) ---
     performance_outliers = {}
     if not df_copy.empty:
         try:
@@ -285,29 +332,19 @@ def generate_structured_context_from_data(df):
             }
         except (KeyError, ValueError):
              performance_outliers = {"error": "Could not determine outliers."}
-
-
-    # --- Assemble the final JSON structure ---
     structured_context = {
-        "overall_summary": {
-            "total_posts": total_posts,
-            "total_views": int(total_views),
-            "average_engagement_rate": avg_engagement_rate,
-            "date_range": {"start": min_date, "end": max_date}
-        },
+        "overall_summary": {"total_posts": total_posts, "total_views": int(total_views), "average_engagement_rate": avg_engagement_rate, "date_range": {"start": min_date, "end": max_date}},
         "sentiment_distribution": sentiment_counts,
-        "engagement_analysis": {
-            "by_topic": engagement_by_topic,
-            "by_group": engagement_by_grup
-        },
+        "engagement_analysis": {"by_topic": engagement_by_topic, "by_group": engagement_by_grup},
         "daily_trends": daily_counts,
         "top_viral_posts": top_viral_posts,
         "account_performance": performance_outliers
     }
     return structured_context
 
-# Di utils.py, ganti juga dengan fungsi ini
-def get_ai_response(prompt, matched_data_df, search_query):
+# --- PERUBAHAN 5: Tambahkan 'client' sebagai argumen ---
+def get_ai_response(client, prompt, matched_data_df, search_query):
+     
     strict_keywords = {kw for group in search_query.get('strict_groups', []) for kw in group}
     fallback_keywords = set(search_query.get('fallback_keywords', []))
     all_keywords = sorted(list(strict_keywords | fallback_keywords))
@@ -347,8 +384,9 @@ def get_ai_response(prompt, matched_data_df, search_query):
     conversation_history = st.session_state.messages.copy()
     conversation_history.insert(0, {"role": "system", "content": context})
     try:
-        response_stream = openai.chat.completions.create(
-            model="gpt-4o-mini",
+        # --- PERUBAHAN 6: Ganti pemanggilan API & model ---
+        response_stream = client.chat.completions.create(
+            model="accounts/fireworks/models/gpt-oss-120b", # Model besar OSS
             messages=[{"role": m["role"], "content": m["content"]} for m in conversation_history],
             stream=True
         )
@@ -361,6 +399,7 @@ def get_ai_response(prompt, matched_data_df, search_query):
         
 def get_no_data_suggestion(prompt):
     """Generates a streaming response for when no data is found."""
+    # FUNGSI INI TIDAK BERUBAH
     response_text = f"Maaf, saya tidak dapat menemukan data apa pun yang terkait dengan '{prompt}'. Silakan coba kata kunci atau topik lain."
     for word in response_text.split():
         yield word + " "
